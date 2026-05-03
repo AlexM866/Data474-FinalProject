@@ -1,0 +1,16 @@
+---
+title: "D474_DataClean"
+author: "Alex Marcek"
+output: html_document
+---
+
+## Import Data
+
+```{r}
+# Relative path approach: (Relative to RStudio Project Root)
+
+#clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv")
+
+#head(clickstream)
+```
+
