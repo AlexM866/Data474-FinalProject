@@ -6,11 +6,37 @@ output: html_document
 
 ## Import Data
 
+DISCLAIMER: The following chunk is included because of the structure of our directory. We want directory paths to be resolved from our project root. This does not always happen automatically depending on how our working directory is set up. A common (local) fix is found in your RStudio's options. Tools -> Global Options -> RMarkdown -> Evaluate Chunks in Directory : Project (default is Document, switch to Project). Hopefully this is not required, but it is the fix I recommend if you have trouble importing our data. 
+
+The fix that will hopefully work for all of us is in the package `here`. Calling `here()` resolves the path relative to our project root for all repo users. Please contact Alex if importing issues persist past this documentation!
+
 ```{r}
-# Relative path approach: (Relative to RStudio Project Root)
-
-#clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv")
-
-#head(clickstream)
+# Force dependency
+if (!require(here)) install.packages("here")
 ```
 
+```{r}
+# Relative path approach
+library(here)
+clickstream <- read.table(here("Data", "RawData", "e-shop_clothing2008.csv"),
+                             header = TRUE,
+                             sep = ";")
+
+head(clickstream)
+
+# If this chunk returns error, try setting below chunk (eval = TRUE), then run. 
+```
+
+```{r, eval = FALSE}
+# RStudio path relative to project root
+## Working directory error diagnosis: print any errors you receive
+print(getwd())
+print(file.exists("Data/RawData/e-shop_clothing2008.csv"))
+clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv",
+                        header = TRUE, 
+                        sep = ";")
+```
+
+## Data Overview
+
+## Data Quality Assessment
