@@ -247,4 +247,10 @@ library(skimr)
 skim(clickstream)
 ```
 
+Write edited data, save into separate file
+```{r}
+#write.csv(clickstream, )
+```
+
+
 DISCLAIMER: This is not a full EDA document. The next part of EDA, Univariate and Multivariate Analysis, further context given to our variables, and hypothesis generation will be discussed in `D474_EDA.Rmd`.
