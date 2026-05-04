@@ -10,3 +10,12 @@ Data Cleaning / EDA checklist
 - understanding variable documentation (important for future analysis).
 
 - convert to factors? 
+
+- identify duplicate events
+
+`````````````````````````````````````````````````````
+goals: - identify outliers, botting, fraud detection?
+	- UX analysis, where do users drop off (last click)? Where do they tend to click first? 
+	- Funnel analysis, how many users complete checkout/abandon?
+	- Dropoff question: how many users explore to last page? where is the usual dropoff when it comes to page exploration (look at 'page' 
+	
