@@ -22,7 +22,7 @@ clickstream <- read.table(here("Data", "RawData", "e-shop_clothing2008.csv"),
                              header = TRUE,
                              sep = ";")
 
-head(clickstream)
+clickstream[1:5, ]
 
 # If this chunk returns error, try setting below chunk (eval = TRUE), then run. 
 ```
@@ -36,7 +36,57 @@ clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv",
                         header = TRUE, 
                         sep = ";")
 ```
+Our data was sourced from kaggle: https://www.kaggle.com/datasets/tunguz/clickstream-data-for-online-shopping?resource=download
+This data set contains information from an online store that offers clothing for pregnant women. The data is from a five month period in 2008. The data set contains relevant (front end) information on the website, along with product information and user information. Our aim is to show how website layout and product attributes may impact user interactions . 
+
+\newpage
 
 ## Data Overview
+
+We will begin by examining and commenting on the structure of our data set
+```{r}
+# Structure
+str(clickstream)
+```
+As we can see, the data set is a 165474 x 14 matrix. There are 14 variables with 165474 observations. 
+
+An important note on data types. All of our variables (except for "page.2..clothing.model.", which is a character type) are integers. However, we cannot treat them all as integers. Looking at the data set's documentation, the following variables are encoded categorical. (Algebraic manipulation will be invalid for the following): `order(?)`, `country`, `session.ID`, `page.1..main.category.`, `page.2..clothing.model.`, `colour`, `location`, `model.photography`, `price.2`. So, it really only makes sense to potentially perform such algebraic manipulations on the following variables: `year`, `month`, `day`, `price`, `page`.
+
+We will take a quick look at a random sample of our data to see if there are any surface inconsistencies in our data set. Specifically, we are looking for any missing data entries, mixed types, broken characters, implicit nulls that are not flagged as NA, and any structural surprises that may lend additional context to the way our data set functions. 
+```{r}
+# Random Missingness/Invalidity Audit
+
+library(dplyr)
+set.seed(050326)
+
+# First 10 rows
+head(clickstream, 10)
+
+# 50 randomly sampled points from data 
+clickstream %>% slice_sample(n = 50)
+
+# Last 10 Rows
+tail(clickstream, 10)
+```
+
+Next, we will check the ranges, or levels (for factors) of our data set. We will cross check with the sampled data above to make sure there are not any values that fall outside of feasible values. 
+
+```{r}
+summary(clickstream)
+```
+For ease of manipulation later on, lets take a moment to standardize the variable names: 
+```{r}
+name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
+
+clickstream <- clickstream |>
+  rename(any_of(name_map))
+
+colnames(clickstream)
+```
+
+Now, lets take note of the levels of each factor we have in this data set. We may want to convert some of these variables to factors later in our data analysis as well. For this reason, we will create a conversion function that we can utilize later in our analysis.
+```{r}
+col_to_factor <- c("country")
+```
 
 ## Data Quality Assessment

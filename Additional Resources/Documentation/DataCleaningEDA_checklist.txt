@@ -1,0 +1,12 @@
+Data Cleaning / EDA checklist
+--------------------------------------------------------
+
+- remove year category, redundant
+- what does order mean? is this for single users or multiple? 
+
+- Area of interest: order; location, model photography, price, month/day
+
+- previewing sample records
+- understanding variable documentation (important for future analysis).
+
+- convert to factors? 
