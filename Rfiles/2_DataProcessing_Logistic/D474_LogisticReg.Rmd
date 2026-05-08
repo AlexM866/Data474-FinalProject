@@ -10,6 +10,13 @@ library(ISLR2)
 library(boot)
 ```
 
+```{r}
+library(here)
+clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
+                             header = TRUE,
+                             sep = ",")
+```
+
 
 ```{r}
 train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
@@ -19,9 +26,16 @@ table(clickstream$hi.clicks)
 ```
 
 ```{r}
-logmod <- glm( hi.clicks ~ main_category+color+location+model_photography+price, family = binomial, data = clickstream)
-cv.log <- cv.glm( clickstream, logmod, K = 6 )
+# logmod <- glm( hi.clicks ~ main_category+color+location+model_photography+price, family = binomial, data = clickstream)
 
-(cv.log$delta)
 
+boot.fn <- function(data, index){
+  coef(
+  glm( hi.clicks ~ main_category+color+location+model_photography+price, family = binomial, data = data,subset=index)
+  )
+}
+
+set.seed(1)
+cboot <- boot(clickstream, boot.fn, 50)
+cboot$
 ```
