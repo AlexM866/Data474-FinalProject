@@ -254,3 +254,27 @@ Write edited data, save into separate file
 
 
 DISCLAIMER: This is not a full EDA document. The next part of EDA, Univariate and Multivariate Analysis, further context given to our variables, and hypothesis generation will be discussed in `D474_EDA.Rmd`.
+
+```{r}
+clickstream
+
+str_date_vec <- paste(rep('2008',dim(clickstream)[1]), as.character(clickstream$month), as.character(clickstream$day), sep="/")
+str_date_vec
+
+clickstream$date <- as.Date(str_date_vec)
+```
+
+```{r}
+str_key_vec <- paste(as.character(clickstream$sid), as.character(clickstream$order), sep=",")
+str_key_vec
+
+clickstream$key <- str_key_vec
+clickstream <- clickstream[,c(-1,-2)]
+clickstream <- clickstream[,c(13,12,1:11)]
+clickstream
+```
+
+```{r}
+clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0)
+clickstream
+```
