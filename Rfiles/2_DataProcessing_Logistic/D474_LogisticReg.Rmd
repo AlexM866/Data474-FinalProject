@@ -22,20 +22,26 @@ clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
 train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
 train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
-table(clickstream$hi.clicks)
+table(clickstream$hi_clicks)
 ```
 
 ```{r}
-# logmod <- glm( hi.clicks ~ main_category+color+location+model_photography+price, family = binomial, data = clickstream)
+logmod <- glm( hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = train_df)
 
 
 boot.fn <- function(data, index){
   coef(
-  glm( hi.clicks ~ main_category+color+location+model_photography+price, family = binomial, data = data,subset=index)
+  glm( hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = data,subset=index)
   )
 }
 
 set.seed(1)
-cboot <- boot(clickstream, boot.fn, 50)
-cboot$
+# cboot <- boot(clickstream, boot.fn, 50)
+# cboot$t0
+
+pred <- predict(logmod,test_df)
+pred <- ifelse(pred > 0.5, 1, 0)
+
+mean(test_df$hi_clicks != pred)
 ```
+Latest
