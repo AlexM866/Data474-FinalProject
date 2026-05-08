@@ -289,4 +289,33 @@ clickstream$location <- as.factor(clickstream$location)
 clickstream$page <- as.factor(clickstream$page)
 ```
 
+<<<<<<< Updated upstream
+=======
+hello
+
+
+
+```{r}
+par(mfrow = c(1, 2))
+
+barplot(
+  table(clickstream$month),
+  main = "Frequency of price_2",
+  xlab = "Category",
+  ylab = "Count",
+  col = "lightblue"
+)
+
+barplot(
+  table(clickstream$country),
+  main = "Frequency of price_2",
+  xlab = "IP",
+  ylab = "Count",
+  col = "lightblue"
+)
+as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
+```
+Months have roughly the same number of interactions.
+Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.
+>>>>>>> Stashed changes
 
