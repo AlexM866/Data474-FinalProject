@@ -276,7 +276,17 @@ clickstream
 
 ```{r}
 clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0)
-clickstream
+clickstream$hi.clicks <- as.factor(clickstream$hi.clicks)
+clickstream$color <- as.factor(clickstream$color)
+clickstream$model_photography <- as.factor(clickstream$model_photography)
+clickstream$location <- as.factor(clickstream$location)
+clickstream$price_2 <- as.factor(clickstream$price_2)
+clickstream$country <- as.factor(clickstream$country)
+clickstream$sid <- as.factor(clickstream$sid)
+clickstream$main_category <- as.factor(clickstream$main_category)
+clickstream$clothing_model <- as.factor(clickstream$clothing_model)
+clickstream$location <- as.factor(clickstream$location)
+clickstream$page <- as.factor(clickstream$page)
 ```
 
-hello
+
