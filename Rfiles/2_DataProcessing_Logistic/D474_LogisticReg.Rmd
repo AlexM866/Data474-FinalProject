@@ -24,10 +24,27 @@ train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
 table(clickstream$hi_clicks)
 ```
-
+## Feature Selection
 ```{r}
-logmod <- glm( hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = train_df)
+library(leaps)
+regfit.full <- regsubsets(hi_clicks ~ main_category+color+location+model_photography+price, data = train_df)
+(reg.summary <- summary(regfit.full))
 
+par(mfrow = c(2, 2))
+plot(reg.summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+```
+
+
+
+
+
+## Model Construction, bootstrap testing of features
+```{r}
+logmod <- glm(hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = train_df)
+
+'
+Attempted a boot here:
 
 boot.fn <- function(data, index){
   coef(
@@ -38,6 +55,7 @@ boot.fn <- function(data, index){
 set.seed(1)
 # cboot <- boot(clickstream, boot.fn, 50)
 # cboot$t0
+'
 
 pred <- predict(logmod,test_df)
 pred <- ifelse(pred > 0.5, 1, 0)
