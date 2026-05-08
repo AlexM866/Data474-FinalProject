@@ -139,7 +139,7 @@ After completing this section, we have gained some added context on our variable
 
 ## Data Quality Assessment
 
-1. First, lets do a sweeping check for missingness in our data
+1. First, lets do a sweeping check for missingness in our data.
 ```{r}
 colSums(is.na(clickstream))
 ```
