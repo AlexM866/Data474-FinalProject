@@ -247,13 +247,7 @@ library(skimr)
 skim(clickstream)
 ```
 
-Write edited data, save into separate file
-```{r}
-#write.csv(clickstream, )
-```
-
-
-DISCLAIMER: This is not a full EDA document. The next part of EDA, Univariate and Multivariate Analysis, further context given to our variables, and hypothesis generation will be discussed in `D474_EDA.Rmd`.
+## Data Type Conversions
 
 ```{r}
 clickstream
@@ -275,18 +269,19 @@ clickstream
 ```
 
 ```{r}
-clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0)
-clickstream$hi.clicks <- as.factor(clickstream$hi.clicks)
-clickstream$color <- as.factor(clickstream$color)
-clickstream$model_photography <- as.factor(clickstream$model_photography)
-clickstream$location <- as.factor(clickstream$location)
-clickstream$price_2 <- as.factor(clickstream$price_2)
-clickstream$country <- as.factor(clickstream$country)
-clickstream$sid <- as.factor(clickstream$sid)
-clickstream$main_category <- as.factor(clickstream$main_category)
-clickstream$clothing_model <- as.factor(clickstream$clothing_model)
-clickstream$location <- as.factor(clickstream$location)
-clickstream$page <- as.factor(clickstream$page)
+# Create high click classifier column
+clickstream$hi_clicks <- ifelse(clickstream$order > 9, 1,0)
+```
+
+```{r}
+# Convert to factors
+cols <- c("hi_clicks", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+
+clickstream[cols] <- lapply(clickstream[cols], as.factor)
+```
+
+```{r}
+str(clickstream)
 ```
 
 <<<<<<< Updated upstream
@@ -318,4 +313,13 @@ as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
 Months have roughly the same number of interactions.
 Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.
 >>>>>>> Stashed changes
+
+
+Write edited data, save into separate file
+```{r}
+write.csv(clickstream, here("Data", "EditedData", "clickstream_dc.csv"), row.names = FALSE)
+```
+
+
+DISCLAIMER: This is not a full EDA document. The next part of EDA, Univariate and Multivariate Analysis, further context given to our variables, and hypothesis generation will be discussed in `D474_EDA.Rmd`.
 
