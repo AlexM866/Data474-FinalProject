@@ -278,3 +278,5 @@ clickstream
 clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0)
 clickstream
 ```
+
+hello
