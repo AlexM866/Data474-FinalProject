@@ -6,6 +6,8 @@ output: html_document
 # SVM Space
 
 ```{r}
+library(here)
+library(tidyverse)
 clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
                              header = TRUE,
                              sep = ",")
@@ -22,12 +24,13 @@ click_small <- clickstream[sample_rows, ]
 
 ```{r}
 library(e1071)
-click_svm <- click_small[, !(names(click_small)%in% c( "clothing_model", "key", "date","order"))]
-click_svm$hi_clicks <- as.factor(click_svm$hi_clicks)
+click_svm <- click_small[, !(names(click_small)%in% c( "clothing_model", "key", "date","order","hi_clicks_avg"))]
+click_svm$hi_clicks_med <- as.factor(click_svm$hi_clicks_med)
 ```
 
 
 ```{r}
+'
 click_svm$hi_clicks <- factor(click_svm$hi_clicks)
 click_svm$country <- factor(click_svm$country)
 click_svm$main_category <- factor(click_svm$main_category)
@@ -35,6 +38,7 @@ click_svm$color <- factor(click_svm$color)
 click_svm$location <- factor(click_svm$location)
 click_svm$model_photography <- factor(click_svm$model_photography)
 click_svm$page <- factor(click_svm$page)
+'
 ```
 
 
@@ -48,7 +52,7 @@ test <-(-train)
 # linear 
 tune <- tune(
   svm,
-  hi_clicks ~ .,
+  hi_clicks_med ~ .,
   data=click_svm[train, ],
   kernel = "linear",
   ranges =list(cost =c(0.1, 1, 1.5, 10, 100)),
@@ -60,7 +64,7 @@ summary(tune)
 ```{r}
 best <- tune$best.model
 pred <- predict(best, click_svm[test, ])
-mean(pred != click_svm$hi_clicks[test])
+mean(pred != click_svm$hi_clicks_med[test])
 ```
 
 ```{r}
@@ -68,7 +72,7 @@ mean(pred != click_svm$hi_clicks[test])
 set.seed(123)
 tune_rad <- tune(
   svm,
-  hi_clicks ~ .,
+  hi_clicks_med ~ .,
   data=click_svm[train, ],
   kernel = "radial",
   ranges =list(cost =c(0.1, 1, 1.5, 10, 100)),
@@ -81,14 +85,14 @@ summary(tune_rad)
 ```{r}
 best <- tune_rad$best.model
 pred <- predict(best, click_svm[test, ])
-mean(pred != click_svm$hi_clicks[test])
+mean(pred != click_svm$hi_clicks_med[test])
 ```
 
 ```{r}
 set.seed(456)
 tune_poly <- tune(
   svm,
-  hi_clicks ~ .,
+  hi_clicks_med ~ .,
   data=click_svm[train, ],
   kernel = "polynomial",
   ranges =list((cost =c(0.1, 1, 10)),
@@ -101,7 +105,7 @@ summary(tune_poly)
 ```{r}
 best_poly <- tune_poly$best.model
 pred_poly <- predict(best_poly, click_svm[test, ])
-mean(pred_poly != click_svm$hi_clicks[test])
+mean(pred_poly != click_svm$hi_clicks_med[test])
 ```
 
 # plots 
