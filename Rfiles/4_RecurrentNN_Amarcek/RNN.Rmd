@@ -1,0 +1,17 @@
+---
+title: "RNN"
+author: "Alex Marcek"
+output: html_document
+---
+
+## Data Import
+
+## Encoding
+
+## RNN Fit
+
+## RNN Performance
+
+## Exension of Study
+
+## Future Study : Interpretability vs Performance
