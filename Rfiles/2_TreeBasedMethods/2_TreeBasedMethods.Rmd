@@ -1,0 +1,174 @@
+---
+title: "Logistic Regression"
+author: "Graham I. Gordon"
+date: "2026-05-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(boot)
+library(tidyverse)
+library(here)
+library(caret)
+library(BART)
+library(randomForest)
+library(pls)
+library(pROC)
+```
+
+
+```{r}
+clickstream <- read.csv(here("Data", "RawData", "e-shop_clothing2008.csv"),
+                        header = TRUE,
+                        sep = ";")
+
+name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
+
+clickstream <- clickstream |>
+  rename(any_of(name_map))
+
+clickstream$price_2 <- as.factor( ifelse(clickstream$price_2 == 2, 0, clickstream$price_2) )
+
+clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0) %>% as.factor()
+
+clickstream <- clickstream %>% mutate(across(where(is.character), as.factor))
+
+colnames(clickstream)
+```
+
+```{r}
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$price_2)
+```
+
+
+```{r}
+logmod <- glm( price_2 ~ main_category + as.factor(color) + location, family = binomial, data = clickstream )
+#cv.log <- cv.glm( clickstream, logmod, K = 6 )
+
+logprob <- predict(logmod, test_df, type = "response")
+logpred <- ifelse(logprob > 0.5, 1, 0)
+
+confusionMatrix(factor(logpred),
+                factor(test_df$price_2))
+```
+
+```{r}
+summary(logmod)
+```
+
+```{r}
+
+```
+
+
+
+```{r}
+keep_cols <- c("main_category", "color", "location", "price", 
+               "model_photography", "page", "month")
+
+xtrain <- subset( train_df, select = -hi.clicks)
+xtrain <- train_df[, keep_cols]
+ytrain <- train_df[,'hi.clicks']
+
+xtest <- subset( test_df, select = -hi.clicks)
+xtest <- test_df[, keep_cols]
+ytest <- test_df[,'hi.clicks']
+rf_fit <- randomForest(x = xtrain, y = factor(ytrain),
+                       ntree = 500,
+                       sampsize = c("0" = 1000, "1" = 1000),
+                       importance = TRUE)
+barfit <- pbart(xtrain,as.numeric(as.character(ytrain)), x.test = xtest)
+#rf_fit <- randomForest(x = xtrain, y = factor(ytrain), ntree = 500, importance = TRUE)
+
+```
+
+```{r}
+# Get predicted probabilities for test set
+bart_probs <- barfit$prob.test.mean
+
+# Convert to binary predictions
+bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
+
+# Confusion matrix
+confusionMatrix(factor(bart_pred), factor(ytest))
+
+
+roc_bart <- roc(as.numeric(as.character(ytest)), bart_probs)
+auc(roc_bart)
+plot(roc_bart, main = "BART ROC Curve")
+```
+
+
+
+```{r}
+
+
+# Get predicted probabilities for class 1
+rf_prob <- predict(rf_fit, xtest, type = "prob")[, 2]
+
+# ROC curve
+roc_rf <- roc(as.numeric(as.character(ytest)), rf_prob)
+
+# Plot it
+plot(roc_rf, main = paste("Random Forest ROC — AUC:", round(auc(roc_rf), 3)))
+
+bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
+
+confusionMatrix(factor(bart_pred), factor(ytest))
+```
+```{r}
+library(xgboost)
+
+xgb_fit <- xgboost(
+  x = as.matrix(xtrain %>% mutate(across(where(is.factor), as.numeric))),
+  y = factor(as.numeric(as.character(ytrain))),
+  nrounds = 100,
+  objective = "binary:logistic",
+  scale_pos_weight = sum(ytrain == 0) / sum(ytrain == 1),
+  learning_rate = 0.1
+)
+```
+
+```{r}
+# Get predicted probabilities
+xgb_prob <- predict(xgb_fit, 
+                    newdata = as.matrix(xtest %>% mutate(across(where(is.factor), as.numeric))))
+
+# Convert to binary predictions
+xgb_pred <- ifelse(xgb_prob > 0.5, 1, 0)
+
+# Confusion matrix
+confusionMatrix(factor(xgb_pred), factor(as.numeric(as.character(ytest))))
+
+# AUC
+roc_xgb <- roc(as.numeric(as.character(ytest)), xgb_prob)
+auc(roc_xgb)
+plot(roc_xgb, main = paste("XGBoost ROC — AUC:", round(auc(roc_xgb), 3)))
+```
+
+
+
+
+```{r}
+pcr.fit <- pcr(hi.clicks ~ main_category + color + location + price + model_photography + page + month, 
+               data = train_df, scale = TRUE, validation = 'CV' )
+
+summary(pcr.fit)
+```
+
+
+
+
+
+
+
+
+
