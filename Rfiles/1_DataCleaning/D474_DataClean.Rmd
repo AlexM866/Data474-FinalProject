@@ -284,34 +284,10 @@ clickstream[cols] <- lapply(clickstream[cols], as.factor)
 str(clickstream)
 ```
 
-
-```{r}
-par(mfrow = c(1, 2))
-
-barplot(
-  table(as.integer(format(clickstream$date, "%m"))),
-  main = "Frequency of price_2",
-  xlab = "Category",
-  ylab = "Count",
-  # col = "lightblue"
-)
-
-barplot(
-  table(clickstream$country),
-  main = "Frequency of price_2",
-  xlab = "IP",
-  ylab = "Count",
-  col = "lightblue"
-)
-as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
-```
-Months have roughly the same number of interactions.
-Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.
-
 Write edited data, save into separate file
 ```{r}
 write.csv(clickstream, here("Data", "EditedData", "clickstream_dc.csv"), row.names = FALSE)
 ```
 
-DISCLAIMER: This is not a full EDA document. The next part of EDA, Univariate and Multivariate Analysis, further context given to our variables, and hypothesis generation will be discussed in `D474_EDA.Rmd`.
+DISCLAIMER: This is not a full EDA document. The next part of EDA, we will complete Univariate and Multivariate Analysis, adding further context to our variables. Hypothesis generation and  will be also discussed in `D474_EDA.Rmd`.
 
