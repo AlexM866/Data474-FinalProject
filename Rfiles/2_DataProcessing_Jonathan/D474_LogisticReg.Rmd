@@ -20,20 +20,19 @@ clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
 
 
 ```{r}
+set.seed(543)
 train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
 train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
-table(clickstream$hi_clicks)
-```
+table(clickstream$hi_clicks_med)
 
-```{r}
-clickstream
+train_df
 ```
 
 
 ## Feature Selection
 ```{r}
-regfit.full <- regsubsets(hi_clicks ~ .-order-clothing_model-date-key, data = train_df)
+regfit.full <- regsubsets(hi_clicks_med ~ .-order-sid-date-key-hi_clicks_avg-clothing_model, data = train_df,really.big=T)
 (reg.summary <- summary(regfit.full))
 
 par(mfrow = c(2, 2))
@@ -47,16 +46,16 @@ plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", typ
 
 ## Model Construction, bootstrap testing of features
 ```{r}
-logmod <- glm(hi_clicks ~ .-order-clothing_model-date-price-sid, family = binomial, data = train_df[,-1])
+# logmod <- glm(hi_clicks_med ~ .-order-date-clothing_model-price-sid-hi_clicks_avg, family = binomial, data = train_df[,-1])
 
-logmod2 <- glm(hi_clicks ~ main_category+model_photography, family = binomial, data = train_df)
+logmod2 <- glm(hi_clicks_med ~ main_category + page + country + location, family = binomial, data = train_df[,-1])
 
 
 # Attempted a boot here:
 
 boot.fn <- function(data, index){
   coef(
-  glm( hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = data,subset=index)
+  glm(hi_clicks_med ~ .-order-clothing_model-date-price-sid, family = binomial, data = data,subset=index)
   )
 }
 
@@ -64,14 +63,54 @@ set.seed(1)
 # cboot <- boot(clickstream, boot.fn, 50)
 # cboot
 
-pred <- predict(logmod,test_df[,-1])
+
+# test_df <- test_df[test_df$clothing_model != 'P28',]
+
+pred <- predict(logmod2,test_df[,-1])
 pred <- ifelse(pred > 0.5, 1, 0)
 
-mean(test_df$hi_clicks != pred)
+mean(test_df$hi_clicks_med != pred)
 ```
 
+
+
+
+
+
+
+
 ```{r}
-table(pred, test_df$hi_clicks)
+# logmod <- glm(hi_clicks_med ~ .-order-date-clothing_model-price-sid-hi_clicks_avg, family = binomial, data = train_df[,-1])
+
+logmod3 <- glm(hi_clicks_avg ~ main_category + page + country + location, family = binomial, data = train_df[,-1])
+
+
+# Attempted a boot here:
+
+boot.fn <- function(data, index){
+  coef(
+  glm(hi_clicks_avg ~ .-order-clothing_model-date-price-sid, family = binomial, data = data,subset=index)
+  )
+}
+
+set.seed(1)
+# cboot <- boot(clickstream, boot.fn, 50)
+# cboot
+
+
+test_df <- test_df[test_df$clothing_model != 'P28',]
+
+pred <- predict(logmod3,test_df[,-1])
+pred <- ifelse(pred > 0.5, 1, 0)
+
+mean(test_df$hi_clicks_avg != pred)
+```
+
+
+
+
+```{r}
+table(pred, test_df$hi_clicks_med)
 ```
 
 

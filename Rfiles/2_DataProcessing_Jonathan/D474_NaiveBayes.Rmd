@@ -25,11 +25,19 @@ test_df <- clickstream[-train, ]
 
 ```{r}
 
-nb.fit <- naiveBayes(hi_clicks ~ main_category+color+location+model_photography+price, data = train_df)
+nb.fit <- naiveBayes(hi_clicks_med ~ main_category + page + country + location, data = train_df)
 nb.class <- predict(nb.fit, test_df)
 
-table(nb.class, test_df$hi_clicks)
+table(nb.class, test_df$hi_clicks_med)
 
-(sum(table(nb.class, test_df$hi_clicks)) - table(nb.class, test_df$hi_clicks)[1,1] + table(nb.class, test_df$hi_clicks)[2,2])/ sum(table(nb.class, test_df$hi_clicks))
+(sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
+```
+```{r}
+nb.fit <- naiveBayes(hi_clicks_avg ~ main_category + page + country + location, data = train_df)
+nb.class <- predict(nb.fit, test_df)
+
+table(nb.class, test_df$hi_clicks_avg)
+
+(sum(table(nb.class, test_df$hi_clicks_avg)) - table(nb.class, test_df$hi_clicks_avg)[1,1] - table(nb.class, test_df$hi_clicks_avg)[2,2])/ sum(table(nb.class, test_df$hi_clicks_avg))
 ```
 
