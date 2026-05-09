@@ -1,0 +1,293 @@
+---
+title: "D474_DataClean"
+author: "Alex Marcek"
+output: html_document
+---
+
+## Import Data
+
+DISCLAIMER: The following chunk is included because of the structure of our directory. We want directory paths to be resolved from our project root. This does not always happen automatically depending on how our working directory is set up. A common (local) fix is found in your RStudio's options. Tools -> Global Options -> RMarkdown -> Evaluate Chunks in Directory : Project (default is Document, switch to Project). Hopefully this is not required, but it is the fix I recommend if you have trouble importing our data. 
+
+The fix that will hopefully work for all of us is in the package `here`. Calling `here()` resolves the path relative to our project root for all repo users. Please contact Alex if importing issues persist past this documentation!
+
+```{r}
+# Force dependency
+if (!require(here)) install.packages("here")
+```
+
+```{r}
+# Relative path approach
+library(here)
+clickstream <- read.table(here("Data", "RawData", "e-shop_clothing2008.csv"),
+                             header = TRUE,
+                             sep = ";")
+
+clickstream[1:5, ]
+
+# If this chunk returns error, try setting below chunk (eval = TRUE), then run. 
+```
+
+```{r, eval = FALSE}
+# RStudio path relative to project root
+## Working directory error diagnosis: print any errors you receive
+print(getwd())
+print(file.exists("Data/RawData/e-shop_clothing2008.csv"))
+clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv",
+                        header = TRUE, 
+                        sep = ";")
+```
+Our data was sourced from kaggle: https://www.kaggle.com/datasets/tunguz/clickstream-data-for-online-shopping?resource=download
+This data set contains information from an online store that offers clothing for pregnant women. The data is from a five month period in 2008. The data set contains relevant (front end) information on the website, along with product information and user information. Our aim is to show how website layout and product attributes may impact user interactions . 
+
+\newpage
+
+## Data Overview
+
+We will begin by examining and commenting on the structure of our data set
+```{r}
+# Structure
+str(clickstream)
+```
+As we can see, the data set is a 165474 x 14 matrix. There are 14 variables with 165474 observations. 
+
+An important note on data types. All of our variables (except for "page.2..clothing.model.", which is a character type) are integers. However, we cannot treat them all as integers. Looking at the data set's documentation, the following variables are encoded categorical. (Algebraic manipulation will be invalid for the following): `order(?)`, `country`, `session.ID`, `page.1..main.category.`, `page.2..clothing.model.`, `colour`, `location`, `model.photography`, `price.2`. So, it really only makes sense to potentially perform such algebraic manipulations on the following variables: `year`, `month`, `day`, `price`, `page`.
+
+We will take a quick look at a random sample of our data to see if there are any surface inconsistencies in our data set. Specifically, we are looking for any missing data entries, mixed types, broken characters, implicit nulls that are not flagged as NA, and any structural surprises that may lend additional context to the way our data set functions. 
+```{r}
+# Random Missingness/Invalidity Audit
+
+library(dplyr)
+set.seed(050326)
+
+# First 10 rows
+head(clickstream, 10)
+
+# 50 randomly sampled points from data 
+clickstream %>% slice_sample(n = 50)
+
+# Last 10 Rows
+tail(clickstream, 10)
+```
+
+Next, we will check the ranges, or levels (for factors) of our data set. We will cross check with the sampled data above to make sure there are not any values that fall outside of feasible values. 
+
+```{r}
+summary(clickstream)
+```
+Taking a look at our variables: `year`, `month`, `day`, `country`, `page.1..main.category.` `colour`, `location`, `model.photography`, `price`, `price.2`, `page` all exhibit feasible ranges according to the available documentation. The two variables that we will need to take a closer look at are: `order` and `page.2..clothing.model.`. Looking at the mean of `order`, we see that its 9.817, but there is a maximal value of 195, abnormally high. We will need to look at outliers under `order`. Also, we will need to check if the number of unique entries for `page.2..cloting.model.` is equal to 217, the reported value in the documentation.
+
+For ease of manipulation later on, lets take a moment to standardize the variable names: 
+```{r}
+name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
+
+clickstream <- clickstream |>
+  rename(any_of(name_map))
+
+colnames(clickstream)
+```
+Lets also take a moment to get rid of `year`. We don't lose any information by removing it, as long as we proceed with this document with the understanding that all of these entries took place in 2008. 
+```{r}
+unique(clickstream$year) # as we can see, all entries are 2008
+
+clickstream <- clickstream[, -1]
+dim(clickstream)
+colnames(clickstream)
+```
+
+Now, lets take note of the levels of each factor we have in this data set. We may want to convert some of these variables to factors later in our data analysis as well. For this reason, we will create a conversion function that we can utilize later in our analysis.
+```{r}
+# Function definition : factorize selected variables in data set
+
+variable.factorize <- function(df, vec){
+  df_temp <- df |>
+    mutate(across(all_of(vec), as.factor))
+  
+  df_temp
+}
+```
+
+```{r}
+# To use this function, simply list the variables you wish to convert to factors
+## Example: 
+vars_to_fac <- c("country", "color", "price_2")
+
+df_temp <- variable.factorize(clickstream, vars_to_fac)
+
+str(df_temp)
+# Observe we've converted the desired variables to factors...
+```
+
+The variable `order` is of interest to us. Unfortunately, the documentation is not extremely clear as to how this variable works and what exactly it means. My first hypothesis was that order was a tally. However, I have reason to believe that order is tied to session ID, `sid`. Lets check this.
+```{r}
+# How many unique session IDs are there in this data set? 
+length(unique(clickstream$sid))
+
+# Compare this to the total # of entries
+length(clickstream$sid)
+```
+As we can see, session IDs are duplicated in this data set. So, a single session ID can be associated with multiple entries. So, we have 24026 unique (separate sessions) that complete 165474 actions across a 5 month period. This gives some more context on the meaning of the `order` variable. We can see where users clicked (through `location`), and in what order they clicked.
+
+Finally, a quick check on our variable `clothing_model` to make sure everything is in order.
+```{r}
+length(unique(clickstream$clothing_model))
+
+# It is as it should be! 217 unique clothing model codes.
+```
+After completing this section, we have gained some added context on our variables and how our data is structured. We have also seen that we don't expect to run into any issues with unreported missingness and invalid entries. 
+
+\newpage
+
+## Data Quality Assessment
+
+1. First, lets do a sweeping check for missingness in our data.
+```{r}
+colSums(is.na(clickstream))
+```
+```{r}
+library(naniar)
+
+set.seed(050426)
+
+# Missingness visualization
+clickstream_samp <- clickstream %>%
+  slice_sample(prop = 0.25)
+
+vis_miss(clickstream_samp)
+gg_miss_var(clickstream_samp)
+miss_var_summary(clickstream_samp)
+```
+There is no missing data. All columns have non-NA entries for each row. 
+
+2. Detecting duplicates
+```{r}
+sum(duplicated(clickstream)) 
+# We see that all rows entries are unique, however, we know that some of our individual variables may be duplicated
+```
+Lets flag all instances of duplicates
+```{r}
+clickstream %>% filter(duplicated(sid) | duplicated(sid, fromLast = TRUE))
+```
+We know that we will have duplicate session IDs. These will help us track what user is completing which actions. We may want to check that there are no duplicated values of `order` within a single `sid` history. Any duplicated `order` may be a erroneous collection. Lets check this now. 
+```{r}
+# checking for duplicated within SIDs
+clickstream %>%
+  group_by(sid) %>%
+  filter(duplicated(order) | duplicated(order, fromLast = TRUE)) %>%
+  arrange(sid, order)
+```
+Returns an empty matrix, indicating that there are no instances of order being duplicated withing the same browsing session ID. 
+
+3. Detecting outliers
+```{r}
+# Assigning Z-score to numeric columns 
+## (WARNING: only for outlier detection, not for numeric analysis)
+
+clickstream %>% 
+  select(where(is.numeric)) %>%
+  mutate(across(everything(), ~ (. - mean(., na.rm = TRUE)) / sd(., na.rm = TRUE))) %>%
+  filter(if_any(everything(), ~ abs(.) > 3))
+```
+
+```{r}
+# IQR approach - function definition
+find_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  x < (Q1 - 1.5 * IQR) | x > (Q3 + 1.5 * IQR)
+}
+
+# Try it on order, an area of interest
+clickstream %>% filter(find_outliers(order))
+```
+We see that there are a great deal of outliers in our, according to the IQR method. This will be of interest to us, later in our report. For now, we will visualize the distribution of the `order` variable. 
+
+```{r}
+library(ggplot2)
+
+ggplot(clickstream, aes(x = order)) + 
+  geom_histogram(bins = 50)
+```
+As we can see, there is a strong right skew in our `order` variable. The interpretation, the majority if users tend to explore less on this webpage, but there is a minority of users that make a large number of clicks in a single session. 
+
+4. Check for inconsistent formatting in character column
+```{r}
+library(stringr)
+
+# Counts of occurrence of each clothing model
+clickstream %>% count(clothing_model, sort = TRUE)
+```
+As we saw above, there are 217 unique entries for `clothing_model` as expected. We now also have counts for each one of the unique entries.
+
+```{r}
+# Case inconsistencies
+clickstream %>% 
+  mutate(lower = str_to_lower(clothing_model)) %>%
+  count(lower, sort = TRUE)
+```
+Again, 217 unique entries, suggesting that case inconsistencies are not an issue in our data.
+
+```{r}
+# Leading and trailing whitespace detection
+clickstream %>% filter(clothing_model != str_trim(clothing_model))
+```
+No leading or trailing whitespaces!
+
+```{r}
+# Finally, unexpected character detection
+clickstream %>% filter(str_detect(clothing_model, "[^a-zA-Z0-9 ]"))
+```
+No unexpected characters present. We do not expect to encounter any issues with our character datatype variable, `clothing_model`. 
+
+5. Quick final overview: 
+
+```{r}
+library(skimr)
+
+skim(clickstream)
+```
+
+## Data Type Conversions
+
+```{r}
+clickstream
+
+str_date_vec <- paste(rep('2008',dim(clickstream)[1]), as.character(clickstream$month), as.character(clickstream$day), sep="/")
+str_date_vec
+
+clickstream$date <- as.Date(str_date_vec)
+```
+
+```{r}
+str_key_vec <- paste(as.character(clickstream$sid), as.character(clickstream$order), sep=",")
+str_key_vec
+
+clickstream$key <- str_key_vec
+clickstream <- clickstream[,c(-1,-2)]
+clickstream <- clickstream[,c(13,12,1:11)]
+clickstream
+```
+
+```{r}
+# Create high click classifier column
+clickstream$hi_clicks <- ifelse(clickstream$order > 9, 1,0)
+```
+
+```{r}
+# Convert to factors
+cols <- c("hi_clicks", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+
+clickstream[cols] <- lapply(clickstream[cols], as.factor)
+```
+
+```{r}
+str(clickstream)
+```
+
+Write edited data, save into separate file
+```{r}
+write.csv(clickstream, here("Data", "EditedData", "clickstream_dc.csv"), row.names = FALSE)
+```
+
+DISCLAIMER: This is not a full EDA document. The next part of EDA, we will complete Univariate and Multivariate Analysis, adding further context to our variables. Hypothesis generation and  will be also discussed in `D474_EDA.Rmd`.
+

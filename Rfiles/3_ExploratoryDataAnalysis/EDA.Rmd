@@ -1,0 +1,144 @@
+---
+title: "Exploratory Data Analysis"
+Author: "Alex Marcek"
+output: html_document
+---
+
+# Data Import
+We will be using the cleaned data that resulted from the processing we did in `D474_DataClean.rmd`
+
+```{r}
+library(here)
+
+clickstream <- read.csv(here("Data", "EditedData", "clickstream_dc.csv"))
+
+head(clickstream)
+str(clickstream)
+```
+Note that data has been interpreted back into a character and integer data types. We will need to convert back to date if we wish to reference it as such. (We will need this later in the document).
+
+```{r}
+clickstream$date <- as.Date(clickstream$date)
+
+# Same with factors, this time keep sid as 'int' type
+cols <- c("hi_clicks", "color", "model_photography", "location", "price_2", "country", "main_category", "clothing_model", "page")
+
+clickstream[cols] <- lapply(clickstream[cols], as.factor)
+
+str(clickstream)
+```
+
+# Univariate Analysis
+
+```{r}
+library(dplyr)
+library(purrr)
+
+# Lets take a look at our categorical variables first
+categorical_cols <- clickstream %>% select(where(is.factor) | where(is.character)) %>% 
+  names() %>%
+  setdiff("key")
+
+# Frequency tables
+categorical_cols %>%
+  set_names() %>%
+  map(~ clickstream %>%
+        count(.data[[.x]], sort = TRUE) %>%
+        mutate(pct = round(n / sum(n) * 100, 1)) %>%
+        rename(level = 1))
+```
+Some interesting insights from this table:
+
+(Table 1) The majority (81%) of users appear to be from country 29, which according to our documentation is Poland, followed by the Czech Republic (10.9%). It is appropriate to say that the majority of our data comes from the Central European region.
+
+(Table 2 & 3) People in this data set appear to focus their clicks equally among the main product categories (trousers, sale, blouses, skirts) The same can be said for the top 30 clothing models. We note that there is no steep dropoff point among clothing models, though some models are clearly more popular than others. 
+
+(Table 4) Black and blue items are the most popular among viewers of this website
+
+(Table 5) People appear to focus on the photos located on the top of the page and there 3.4% drop in clicks between the top middle and bottom middle (3rd most popular) picture locations. 
+
+(Table 6) En face model photography photos tended to get more clicks
+
+(Table 7) There is not much difference in clicks between products whose price was greater than the average price of the entire category, and products whose prices were not greater. 
+
+(Table 8) The majority of users stayed on either page 1 or 2, and did not venture out to pages 3, 4 or 5. 
+
+(Table 9) The majority of clicks (68.3%) are classified as "low-engagement" clicks, or below the mean value for the entire data set.
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+
+clickstream %>%
+  select(where(is.factor) | where(is.character)) %>%
+  select(-c(key, clothing_model, color, country)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+  count(variable, level) %>%
+  group_by(variable) %>%
+  mutate(pct = round(n / sum(n) * 100, 1)) %>%
+  ggplot(aes(x = reorder(level, n), y = pct)) + 
+  geom_col(fill = "lightblue") + 
+  coord_flip() + 
+  facet_wrap(~ variable, scales = "free") + labs(x = NULL, y = "Percent")
+```
+
+```{r}
+clickstream %>%
+  select(c(clothing_model, color, country)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+  count(variable, level) %>%
+  group_by(variable) %>%
+  mutate(pct = round(n / sum(n) * 100, 1)) %>%
+  ggplot(aes(x = reorder(level, n), y = pct)) + 
+  geom_col(fill = "lightblue") + 
+  coord_flip() + 
+  facet_wrap(~ variable, scales = "free") + 
+  labs(x = NULL, y = "Percent") + 
+  theme(axis.text.y = element_text(size = 4))
+```
+
+Now, lets take a look at our quantitative features
+```{r}
+# Summary
+clickstream %>% 
+  select(where(is.numeric)) %>%
+  summary()
+```
+
+```{r}
+clickstream %>% select(where(is.numeric)) %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) + 
+  geom_histogram(bins = 30, fill = "lightblue") + 
+  facet_wrap(~ variable, scales = "free") + 
+  labs(x = NULL, y = "Count") + 
+  theme(axis.text.x = element_text(size = 5),
+        axis.text.y = element_text(size = 5))
+```
+As we can see from our visuals, a lot of our variables seem to be exponentially distributed or uniformly distributed. The only variable that appears to have an approximately normal distribution is `price`. We may need to perform some data transformations later on. I don't have much concern over the uniformly distributed variable, since for a lot of them, it makes sense that they are uniformly distributed (like `sid`). It is important to take note now, which ones appear to be exponentially distributed, so that we know how to transform them if we encounter performance issues later on: (`hi_clicks`, `model_photography`, `page`, `clothing_model`, `color`, `country`, and `order`).
+
+# Multivariate Analysis
+
+```{r}
+par(mfrow = c(1, 2))
+
+barplot(
+  table(as.integer(format(clickstream$date, "%m"))),
+  main = "Frequency of price_2",
+  xlab = "Category",
+  ylab = "Count",
+  col = "lightblue"
+)
+
+barplot(
+  table(clickstream$country),
+  main = "Frequency of price_2",
+  xlab = "IP",
+  ylab = "Count",
+  col = "lightblue"
+)
+as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
+```
+Months have roughly the same number of interactions.
+Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.

@@ -1,0 +1,91 @@
+---
+title: "Logistic Regression"
+author: "Graham I. Gordon"
+date: "2026-05-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(boot)
+library(tidyverse)
+```
+
+
+```{r}
+clickstream <- read.csv("Data/RawData/e-shop_clothing2008.csv",
+                        header = TRUE, 
+                        sep = ";")
+
+name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
+
+clickstream <- clickstream |>
+  rename(any_of(name_map))
+
+clickstream$price_2 <- ifelse(clickstream$price_2 == 2, 0, clickstream$price_2)
+colnames(clickstream)
+```
+
+```{r}
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$price_2)
+```
+
+
+```{r}
+logmod <- glm( price_2 ~ main_category + as.factor(color) + location, family = binomial, data = clickstream )
+cv.log <- cv.glm( clickstream, logmod, K = 6 )
+```
+
+```{r}
+summary(logmod)
+```
+
+
+
+```{r}
+par(mfrow = c(1, 2))
+
+barplot(
+  table(clickstream$month),
+  main = "Frequency of price_2",
+  xlab = "Category",
+  ylab = "Count",
+  col = "lightblue"
+)
+
+barplot(
+  table(clickstream$country),
+  main = "Frequency of price_2",
+  xlab = "IP",
+  ylab = "Count",
+  col = "lightblue"
+)
+as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
+```
+Months have roughly the same number of interactions.
+Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

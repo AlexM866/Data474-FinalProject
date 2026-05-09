@@ -1,0 +1,33 @@
+---
+title: "D474_NaiveBayes"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(e1071)
+```
+
+```{r}
+clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
+                             header = TRUE,
+                             sep = ",")
+```
+
+```{r}
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$hi_clicks)
+table(test_df$hi_clicks)
+```
+
+```{r}
+
+nb.fit <- naiveBayes(hi_clicks ~ main_category+color+location+model_photography+price, data = train_df)
+nb.class <- predict(nb.fit, test_df)
+table(nb.class, test_df$hi_clicks)
+
+```
+

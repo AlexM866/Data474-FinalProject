@@ -1,0 +1,71 @@
+---
+title: "D474_LogisticReg"
+output: html_document
+---
+
+```{r}
+library(glmnet)
+library(tidyverse)
+library(ISLR2)
+library(boot)
+library(here)
+library(leaps)
+```
+
+```{r}
+clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
+                             header = TRUE,
+                             sep = ",")
+```
+
+
+```{r}
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$hi_clicks)
+```
+## Feature Selection
+```{r}
+regfit.full <- regsubsets(hi_clicks ~ main_category+color+location+model_photography+price, data = train_df)
+(reg.summary <- summary(regfit.full))
+
+par(mfrow = c(2, 2))
+plot(reg.summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+```
+
+
+
+
+
+## Model Construction, bootstrap testing of features
+```{r}
+logmod <- glm(hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = train_df)
+
+logmod2 <- glm(hi_clicks ~ main_category+model_photography, family = binomial, data = train_df)
+
+
+# Attempted a boot here:
+
+boot.fn <- function(data, index){
+  coef(
+  glm( hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = data,subset=index)
+  )
+}
+
+set.seed(1)
+ cboot <- boot(clickstream, boot.fn, 50)
+ cboot
+
+
+pred <- predict(logmod2,test_df)
+pred <- ifelse(pred > 0.5, 1, 0)
+
+mean(test_df$hi_clicks != pred)
+```
+
+
+
+
+
