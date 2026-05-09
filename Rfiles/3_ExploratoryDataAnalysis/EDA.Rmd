@@ -1,0 +1,49 @@
+---
+title: "Exploratory Data Analysis"
+Author: "Alex Marcek"
+output: html_document
+---
+
+# Data Import
+We will be using the cleaned data that resulted from the processing we did in `D474_DataClean.rmd`
+
+```{r}
+library(here)
+
+clickstream <- read.csv(here("Data", "EditedData", "clickstream_dc.csv"))
+
+head(clickstream)
+str(clickstream)
+```
+Note that data has been interpreted back into a character data type. We will need to convert back to date if we wish to reference it as such. (We will need this later in the document).
+
+```{r}
+clickstream$date <- as.Date(clickstream$date)
+```
+
+# Univariate Analysis
+
+```{r}
+par(mfrow = c(1, 2))
+
+barplot(
+  table(as.integer(format(clickstream$date, "%m"))),
+  main = "Frequency of price_2",
+  xlab = "Category",
+  ylab = "Count",
+  col = "lightblue"
+)
+
+barplot(
+  table(clickstream$country),
+  main = "Frequency of price_2",
+  xlab = "IP",
+  ylab = "Count",
+  col = "lightblue"
+)
+as.data.frame(table(clickstream$country)) %>% arrange(desc(Freq)) %>% head(5)
+```
+Months have roughly the same number of interactions.
+Top 5 most popular IPs go to: Poland, Czech Republic, Lithuania, NA, NA.
+
+# Multivariate Analysis
