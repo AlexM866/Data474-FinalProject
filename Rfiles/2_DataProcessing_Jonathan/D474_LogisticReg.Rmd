@@ -25,9 +25,15 @@ train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
 table(clickstream$hi_clicks)
 ```
+
+```{r}
+clickstream
+```
+
+
 ## Feature Selection
 ```{r}
-regfit.full <- regsubsets(hi_clicks ~ main_category+color+location+model_photography+price, data = train_df)
+regfit.full <- regsubsets(hi_clicks ~ .-order-clothing_model-date-key, data = train_df)
 (reg.summary <- summary(regfit.full))
 
 par(mfrow = c(2, 2))
@@ -41,7 +47,7 @@ plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", typ
 
 ## Model Construction, bootstrap testing of features
 ```{r}
-logmod <- glm(hi_clicks ~ main_category+color+location+model_photography+price, family = binomial, data = train_df)
+logmod <- glm(hi_clicks ~ .-order-clothing_model-date-price-sid, family = binomial, data = train_df[,-1])
 
 logmod2 <- glm(hi_clicks ~ main_category+model_photography, family = binomial, data = train_df)
 
@@ -55,16 +61,18 @@ boot.fn <- function(data, index){
 }
 
 set.seed(1)
- cboot <- boot(clickstream, boot.fn, 50)
- cboot
+# cboot <- boot(clickstream, boot.fn, 50)
+# cboot
 
-
-pred <- predict(logmod2,test_df)
+pred <- predict(logmod,test_df[,-1])
 pred <- ifelse(pred > 0.5, 1, 0)
 
 mean(test_df$hi_clicks != pred)
 ```
 
+```{r}
+table(pred, test_df$hi_clicks)
+```
 
 
 
