@@ -16,6 +16,9 @@ library(leaps)
 clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
                              header = TRUE,
                              sep = ",")
+
+# Unimportant features to be removed:
+clickstream <- clickstream[, !(names(clickstream)%in% c("key", "date","order","sid","clothing_model"))]
 ```
 
 
@@ -25,14 +28,12 @@ train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
 train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
 table(clickstream$hi_clicks_med)
-
-train_df
 ```
 
 
-## Feature Selection
+## Feature Selection, using MED boundary
 ```{r}
-regfit.full <- regsubsets(hi_clicks_med ~ .-order-sid-date-key-hi_clicks_avg-clothing_model, data = train_df,really.big=T)
+regfit.full <- regsubsets(hi_clicks_med ~ .-hi_clicks_avg, data = train_df,really.big=T)
 (reg.summary <- summary(regfit.full))
 
 par(mfrow = c(2, 2))
@@ -46,71 +47,73 @@ plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", typ
 
 ## Model Construction, bootstrap testing of features
 ```{r}
-# logmod <- glm(hi_clicks_med ~ .-order-date-clothing_model-price-sid-hi_clicks_avg, family = binomial, data = train_df[,-1])
 
-logmod2 <- glm(hi_clicks_med ~ main_category + page + country + location, family = binomial, data = train_df[,-1])
+logmod2 <- glm(hi_clicks_med ~ main_category + page + country + location, family = binomial, data = train_df)
 
 
 # Attempted a boot here:
 
 boot.fn <- function(data, index){
   coef(
-  glm(hi_clicks_med ~ .-order-clothing_model-date-price-sid, family = binomial, data = data,subset=index)
+  glm(hi_clicks_med ~ main_category + page + country + location, family = binomial, data = data,subset=index)
   )
 }
 
 set.seed(1)
-# cboot <- boot(clickstream, boot.fn, 50)
-# cboot
-
+cboot <- boot(train_df, boot.fn, 50)
+cboot
 
 # test_df <- test_df[test_df$clothing_model != 'P28',]
 
-pred <- predict(logmod2,test_df[,-1])
+pred <- predict(logmod2,test_df,type='response')
 pred <- ifelse(pred > 0.5, 1, 0)
 
 mean(test_df$hi_clicks_med != pred)
+```
+```{r}
+table(pred, test_df$hi_clicks_med)
 ```
 
 
 
 
-
-
-
-
+## Feature Selection, using AVG boundary
 ```{r}
-# logmod <- glm(hi_clicks_med ~ .-order-date-clothing_model-price-sid-hi_clicks_avg, family = binomial, data = train_df[,-1])
+regfit.full <- regsubsets(hi_clicks_med ~ .-hi_clicks_avg-clothing_model, data = train_df,really.big=T)
+(reg.summary <- summary(regfit.full))
 
-logmod3 <- glm(hi_clicks_avg ~ main_category + page + country + location, family = binomial, data = train_df[,-1])
+par(mfrow = c(2, 2))
+plot(reg.summary$rss, xlab = "Number of Variables", ylab = "RSS", type = "l")
+plot(reg.summary$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l")
+```
+
+
+## Model Selection, AVG
+```{r}
+logmod3 <- glm(hi_clicks_avg ~ main_category + page + country + location, family = binomial, data = train_df)
 
 
 # Attempted a boot here:
 
 boot.fn <- function(data, index){
   coef(
-  glm(hi_clicks_avg ~ .-order-clothing_model-date-price-sid, family = binomial, data = data,subset=index)
+  glm(hi_clicks_avg ~ main_category + page + country + location, family = binomial, data = data,subset=index)
   )
 }
 
 set.seed(1)
-# cboot <- boot(clickstream, boot.fn, 50)
-# cboot
+cboot <- boot(train_df, boot.fn, 50)
+cboot
 
-
-test_df <- test_df[test_df$clothing_model != 'P28',]
-
-pred <- predict(logmod3,test_df[,-1])
+pred <- predict(logmod3,test_df,type = 'response')
 pred <- ifelse(pred > 0.5, 1, 0)
 
 mean(test_df$hi_clicks_avg != pred)
 ```
 
 
-
-
 ```{r}
-table(pred, test_df$hi_clicks_med)
+table(pred, test_df$hi_clicks_avg)
 ```
 
 
