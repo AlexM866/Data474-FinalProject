@@ -7,17 +7,67 @@ output: html_document
 ## Data Import
 
 ```{r}
+library(here)
+
 clickstream <- read.csv(here("Data", "EditedData", "clickstream_dc.csv"))
+
+str(clickstream)
+```
+Make sure we have factors and date times where we want them. 
+```{r}
+# Datetime
+clickstream$date <- as.Date(clickstream$date)
+
+# Factors
+cols <- c("hi_clicks_avg", "hi_clicks_med", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+
+clickstream[cols] <- lapply(clickstream[cols], as.factor)
 
 str(clickstream)
 ```
 
 ## Encoding
 
+```{r}
+# Data preparation
+library(dplyr)
+library(purrr)
+
+session_features <- clickstream %>%
+  group_by(sid) %>%
+  summarize(
+    n_clicks = n()
+  )
+```
+
+```{r}
+# Sliding window sequence
+```
+
 ## RNN Fit
 
 ## RNN Performance
 
 ## Exension of Study
+
+In this section we focus on some other questions that stem from our initial study. The previous models that we have build have focused on classifying users as high or low engagement (number of clicks in a session). We will look at two separate interesting cases that tell us a little more about the users, and how they may interact with the website. First, we will further classify users as focused, explorers and price sensitive users. We will also look at predicting the users next click based on their previous clicks. This is useful information for companies, especially for targeted advertising. 
+
+Lets expand on what it means for a user to be classified as focused, explorer or price sensitive. We say a user is (focused) if their number of clicks is low, and they stay in consistent categories. We say a user is an (explorer) if their click count is high, and they visit many diverse categories. Finally, we call a user price sensitive if they stay in consistently high, or low priced sections. 
+
+Implementation of more specific user categorization:
+```{r}
+# Data preparation
+clickstream <- clickstream %>% 
+  select(-key) %>%
+  arrange(sid, order)
+
+# This will take some time, recall we have 24,026 unique session IDs!
+user_sessions <- clickstream %>%
+  group_by(sid) %>% group_split()
+  
+head(clickstream)
+head(user_sessions) # first six sessions (see up to sid 6)
+```
+
 
 ## Future Study : Interpretability vs Performance

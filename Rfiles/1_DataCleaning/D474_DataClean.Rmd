@@ -253,7 +253,7 @@ skim(clickstream)
 clickstream
 
 str_date_vec <- paste(rep('2008',dim(clickstream)[1]), as.character(clickstream$month), as.character(clickstream$day), sep="/")
-str_date_vec
+#str_date_vec
 
 clickstream$date <- as.Date(str_date_vec)
 ```
