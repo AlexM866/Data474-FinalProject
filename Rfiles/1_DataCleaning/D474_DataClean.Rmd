@@ -270,13 +270,21 @@ clickstream
 
 ```{r}
 # Create high click classifier column
+<<<<<<< HEAD
+clickstream$hi_clicks <- ifelse(clickstream$order > 9, 1,0)
+=======
 clickstream$hi_clicks_avg <- ifelse(clickstream$order > 9, 1,0)
 clickstream$hi_clicks_med <- ifelse(clickstream$order > 6, 1,0)
+>>>>>>> b4a88a586413db129691a5f7bf601e1869b5ae3a
 ```
 
 ```{r}
 # Convert to factors
+<<<<<<< HEAD
+cols <- c("hi_clicks", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+=======
 cols <- c("hi_clicks_avg", "hi_clicks_med", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+>>>>>>> b4a88a586413db129691a5f7bf601e1869b5ae3a
 
 clickstream[cols] <- lapply(clickstream[cols], as.factor)
 ```
