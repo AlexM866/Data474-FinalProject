@@ -6,6 +6,12 @@ output: html_document
 
 ## Data Import
 
+```{r}
+clickstream <- read.csv(here("Data", "EditedData", "clickstream_dc.csv"))
+
+str(clickstream)
+```
+
 ## Encoding
 
 ## RNN Fit
