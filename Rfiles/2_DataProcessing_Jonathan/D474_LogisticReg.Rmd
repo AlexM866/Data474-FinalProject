@@ -79,7 +79,7 @@ table(pred, test_df$hi_clicks_med)
 
 ## Feature Selection, using AVG boundary
 ```{r}
-regfit.full <- regsubsets(hi_clicks_med ~ .-hi_clicks_avg-clothing_model, data = train_df,really.big=T)
+regfit.full <- regsubsets(hi_clicks_avg ~ .-hi_clicks_med, data = train_df,really.big=T)
 (reg.summary <- summary(regfit.full))
 
 par(mfrow = c(2, 2))
@@ -110,7 +110,6 @@ pred <- ifelse(pred > 0.5, 1, 0)
 
 mean(test_df$hi_clicks_avg != pred)
 ```
-
 
 ```{r}
 table(pred, test_df$hi_clicks_avg)
