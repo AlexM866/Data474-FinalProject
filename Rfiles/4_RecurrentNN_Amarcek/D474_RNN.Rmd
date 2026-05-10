@@ -5,6 +5,12 @@ output: html_document
 ---
 
 ## Data Import
+```{r, eval = FALSE}
+# Force package installation
+options(download.file.method = "wininet")
+install.packages("fmsb")
+```
+
 
 ```{r}
 library(here)
@@ -19,40 +25,441 @@ Make sure we have factors and date times where we want them.
 clickstream$date <- as.Date(clickstream$date)
 
 # Factors
-cols <- c("hi_clicks_avg", "hi_clicks_med", "color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
+cols <- c("color", "model_photography", "location", "price_2", "country", "sid", "main_category", "clothing_model", "page")
 
 clickstream[cols] <- lapply(clickstream[cols], as.factor)
 
 str(clickstream)
+# we will treat hi_clicks_avg and hi_clicks_med as integers here
 ```
 
-## Encoding
-
+## Data Restructuring
+Preamble: we aim to classify users as high engagement or low engagement based on some feature set. In this case, we will be engineering some features and using 
 ```{r}
 # Data preparation
 library(dplyr)
 library(purrr)
+library(tidyr)
 
+# For each session, we want to summarize clicks, main_category, clothing_models, pages and item colors.
 session_features <- clickstream %>%
   group_by(sid) %>%
   summarize(
-    n_clicks = n()
+    # Tallies
+    n_clicks = n(),
+    n_categories = n_distinct(main_category),
+    n_items = n_distinct(clothing_model),
+    n_pages = n_distinct(page),
+    n_colors = n_distinct(color),
+    n_locations = n_distinct(location),
+    
+    # Price related behavior
+    mean_price = mean(price),
+    sd_price = sd(price), # May encounter NA's here by construction (1-click case)
+    price_range = max(price) - min(price),
+    min_price = min(price),
+    max_price = max(price),
+    
+    # Engagement
+    hi_clicks_avg = mean(hi_clicks_avg), # interpret as pct of sessions clicks that classified as high using mean click classifier
+    hi_clicks_med = mean(hi_clicks_med), # interpret as pct of sessions clicks that classified as high using median click classifier
+    
+    # User behavior
+    revisit_rate = mean(duplicated(clothing_model)), # useful for looping website navigation behavior
+    category_switches = sum(main_category != lag(main_category, default = first(main_category))), # Checks to see if users switch main category between clicks, tallies switches
+    .groups = "drop"
   )
+
+head(session_features)
+```
+Note that we have missing data in the sd_price column. We will summarize here: 
+
+```{r}
+# lets check for percentage of missing data in sd_price
+sum(as.integer(is.na(session_features$sd_price))) / nrow(session_features)
+```
+Around 20 percent of our data!
+```{r}
+session_features %>%
+  filter(is.na(sd_price)) %>%
+  summarize(
+    n = n(),
+    all_single = all(n_clicks == 1),
+    max_clicks = max(n_clicks)
+  )
+```
+We see that in all cases where sd_price is NA, it always results in a single click session. In this case, we know that it is appropriate to inpute 0 for the NAs in sd_price. This is because the NAs resulted as a computational artifact from the `sd()` function, and a true representation of the sd's for single click session is truly zero, not undefined. Lets inpute: 
+```{r}
+session_features <- session_features %>%
+  mutate(sd_price = replace_na(sd_price, 0))
+```
+
+We may want to consider separating these single click session ids from focused users later on in the process, since the number of single click users is ~20%. We will consider this when further classifying our users. For now, we will maintain that single click users are indeed "low engagement"
+
+Now we will create our binary label. 
+```{r}
+median_clicks <- median(session_features$n_clicks) # use median to avoid (dist) assumptions associated with mean value threshold
+
+session_features <- session_features %>%
+  mutate(engagement = ifelse(n_clicks >= median_clicks , "high", "low"))
+
+table(session_features$engagement)
+```
+Observe we now have a 54.29% , 45.71% split now. This opposes our previous 68.3% , 31.7% split of low engagement vs high engagement "clicks". The difference is now we are looking directly at session id. 
+
+```{r}
+library(ggplot2)
+
+ggplot(session_features, aes(n_clicks, fill = engagement)) + 
+  geom_histogram(bins = 40, alpha = 0.8) + 
+  geom_vline(xintercept = median_clicks, linetype = "dashed") + 
+  scale_fill_manual(values = c("high" = "lightgreen", "low" = "lightblue")) + 
+  labs(title = "Click Distribution by Session", 
+       x = "Number of Clicks", y = "Sesssions")
+```
+If we are considering a simple unsupervised approach, this median split rule is enough to classify users as either high or low engagement. This is confirmed in part by the previous models that we fit. They only performed slightly better than this simple classification rule, when attempting to classify users as "high" or "low" engagement. 
+
+A more interesting question is a more detailed classification of our user base. The previous models that we have build have focused on classifying users as high or low engagement (number of clicks in a session). We will look at two separate interesting cases that tell us a little more about the users, and how they may interact with the website. First, we will further classify users as focused, explorers and price sensitive users. Later on, we will also look at predicting the users next click based on their previous clicks. This is useful information for companies, especially for targeted advertising. 
+
+Lets expand on what it means for a user to be classified as focused, explorer or price sensitive. We say a user is (focused) if their number of clicks is low, and they stay in consistent categories. We say a user is an (explorer) if their click count is high, and they visit many diverse categories. Finally, we call a user price sensitive if they stay in consistently high, or low priced sections. In this section, using knn, we will focus on the classification question: focused, explorer or price sensitive.
+
+(1) First, scale data
+```{r}
+# Define which variable we want to consider
+cluster_vars <- c("n_clicks", "n_categories", "n_items", "n_pages", "mean_price", "sd_price", "price_range", "hi_clicks_med", "revisit_rate", "category_switches")
+
+X <- session_features %>%
+  select(all_of(cluster_vars)) %>%
+  scale()
+
+scale_center <- attr(X, "scaled:center")
+scale_sd <- attr(X, "scaled:scale")
+```
+
+Since we are in an unsupervised learning case, it is more difficult to implement cross validation. We have no assigned response, we are treating "hi_clicks_med" as another predictor. Bootstrapping can be implemented, but there is a high computational cost. Some recommended methods for choosing k in a knn, would be either elbow, or silhouette. 
+
+(2) Then choose optimal k for our k-Nearest-Neighbors
+```{r}
+library(factoextra)
+library(cluster)
+
+set.seed(050926)
+
+# Elbow method
+fviz_nbclust(X, kmeans, method = "wss") + 
+  labs(title = "Elbow Method")
+
+# Silhouette
+fviz_nbclust(X, kmeans, method = "silhouette") + 
+  labs(title = "Silhouette Method")
+```
+Our optimal k appears to be 2 according to the silhouette method, and either 2 or 3 for the elbow method. We will choose 2, and evaluate performance. 
+
+(3) Fit k-means
+```{r}
+set.seed(050926)
+
+km <- kmeans(X, centers = 2, nstart = 50, iter.max = 300)
+
+session_features <- session_features %>%
+  mutate(cluster = factor(km$cluster)) # create cluster labels coding
+```
+
+(4) Label clusters
+```{r}
+cluster_profiles <- session_features %>%
+  group_by(cluster) %>%
+  summarize(
+    n = n(),
+    avg_clicks = mean(n_clicks),
+    avg_cats = mean(n_categories),
+    avg_items = mean(n_items),
+    avg_price = mean(mean_price),
+    avg_price_var = mean(sd_price), 
+    avg_revisit = mean(revisit_rate),
+    avg_hi_clicks = mean(hi_clicks_avg),
+    avg_switches = mean(category_switches),
+    .groups = "drop"
+  )
+
+print(cluster_profiles)
+```
+```{r}
+# Create new user classification labels
+cluster_labels <- c("1" = "Explorer",
+                    "2" = "Focused browser",
+                    "3" = "Price sensitive")
+
+session_features <- session_features %>%
+  mutate(segment = recode(cluster, !!!cluster_labels))
+```
+
+(5) Validate
+```{r}
+sil <- silhouette(km$cluster, dist(X))
+cat("Mean silhouette:", round(mean(sil[, 2]), 2), "\n")
+fviz_silhouette(sil) + theme_minimal()
+
+# PCA projection
+pca <- prcomp(X, center = FALSE, scale. = FALSE)
+pcs <- as.data.frame(pca$x[ , 1:2])
+pcs$segment <- session_features$segment
 ```
 
 ```{r}
-# Sliding window sequence
+ggplot(pcs, aes(x = PC1, y = PC2, color = segment)) + 
+  geom_point(alpha = 0.35, size = 1.2) + 
+  stat_ellipse(level = 0.85, linewidth = 1) + 
+  scale_color_manual(values = c(
+    "Explorer" = "lightgreen",
+    "Focused browser" = "lightblue",
+    "Price sensitive" = "red"
+  )) +
+  labs(title = "Session segments - PCA projection") + 
+  theme_minimal()
+```
+After running this KNN silhouette and pca projection evaluation, we see that we are still in the high vs low click classification problem. What could be happening is k = 2 may be separating singular clicks (just detecting bounces), and not actually telling us anything about browsing style. Lets check this: 
+
+```{r}
+km2 <- kmeans(X, centers = 2, nstart = 50)
+session_features$cluster2 <- factor(km2$cluster)
+
+session_features %>%
+  group_by(cluster2) %>%
+  summarise(
+    n = n(),
+    avg_clicks = mean(n_clicks),
+    avg_cats = mean(n_categories),
+    avg_price_var = mean(sd_price),
+    .groups = "drop"
+  )
+```
+Since there is such a large difference in average clicks between cluster 1 and cluster 2, this is why silhouette is preferring k = 2. Lets check how many of our clicks are exactly 1, and how many are below 3.
+
+```{r}
+session_features %>%
+  group_by(cluster2) %>%
+  summarize(
+    pct_single_click = mean(n_clicks == 1),
+    pct_under_3 = mean(n_clicks <= 3),
+    median_clicks = median(n_clicks),
+    .groups = "drop"
+  )
+```
+There's a clear problem here! Close to 30% of our cluster 2, or "focused" users are single clicks, and 64 percent of them are under 3 clicks! Lets filter to only include users that are above three clicks. This way we are including users that are at least minimally engaged in the website (define as greater than 3 clicks). 
+
+```{r}
+X_mult <- X[session_features$n_clicks > 3, ]
+
+set.seed(051026)
+
+fviz_nbclust(X_mult, kmeans, method = "silhouette", k.max = 8) + 
+  labs(title = "Silhouette - greater than 3 clicks") + theme_minimal()
+```
+Still optimal value of k = 2, lets try a slightly higher cutoff and see what happens
+
+```{r}
+X_mult <- X[session_features$n_clicks > 9, ]
+
+set.seed(051026)
+
+fviz_nbclust(X_mult, kmeans, method = "silhouette", k.max = 8) + 
+  labs(title = "Silhouette - greater than 9 clicks") + theme_minimal()
+```
+This provides some valuable insight. It appears that regardless of the cutoff we choose (9 being maximal since it is the avg cutoff that we use in the naive approach), our data may be genuinely bimodal. Lets check one last thing to be sure. Our engineered features may be strongly correlated. Lets see if we can diagnose which (if any) are.
+
+```{r}
+cor_clicks <- cor(session_features[, cluster_vars],
+                  use = "complete.obs")[, "n_clicks"]
+
+sort(cor_clicks, decreasing = TRUE)
+```
+As we see, `n_items`, `hi_clicks_med`,  `category_switches`, `price_range`, `n_pages`, `n_categories` and `sd_price` are all highly correlated with `n_clicks`. Lets try to normalize to decorrelate
+
+```{r}
+session_features_norm <- session_features %>%
+  mutate(
+    cats_per_click = n_categories / n_clicks,
+    items_per_click = n_items / n_clicks,
+    pages_per_click = n_pages / n_clicks,
+    switches_per_click = category_switches / n_clicks,
+    price_var_per_click = sd_price / (n_clicks + 1)
+  )
+
+style_vars <- c("cats_per_click", "items_per_click", "pages_per_click", "switches_per_click", "price_var_per_click", "revisit_rate", "mean_price")
+
+# Check again
+cor_norm <- session_features_norm %>%
+  filter(n_clicks > 3) %>%
+  select(n_clicks, any_of(style_vars)) %>%
+  cor(use = "complete.obs")
+
+round(cor_norm[, "n_clicks"], 3)
+```
+This has decorrelated pretty well, now lets check the silhouette again.
+
+```{r}
+X_style <- session_features_norm %>%
+  filter(n_clicks > 3) %>%
+  select(all_of(style_vars)) %>%
+  scale()
+
+set.seed(051026)
+fviz_nbclust(X_style, kmeans, method = "silhouette", k.max = 8) + 
+  labs(title = "Silhouette - rate-normalized features") + 
+  theme_minimal()
+```
+Finally, we can facilitate the implementation of more than 2 classifications. We proceed: 
+
+```{r}
+set.seed(051026)
+
+km_style <- kmeans(X_style, centers = 3, nstart = 50, iter.max = 300)
+
+session_features_norm <- session_features_norm %>%
+  filter(n_clicks > 3) %>%
+  mutate(style_cluster = factor(km_style$cluster))
 ```
 
-## RNN Fit
+```{r}
+# Cluster profiling
+cluster_profiles <- session_features_norm %>%
+  group_by(style_cluster) %>%
+  summarise(
+    n = n(),
+    avg_cats_per_click = mean(cats_per_click),
+    avg_items_per_click = mean(items_per_click), 
+    avg_pages_per_click = mean(pages_per_click), 
+    avg_switches = mean(switches_per_click), 
+    avg_price_var = mean(price_var_per_click), 
+    avg_revisit = mean(revisit_rate), 
+    avg_price_tier = mean(mean_price),
+    avg_clicks = mean(n_clicks),
+    avg_categories = mean(n_categories),
+    .groups = "drop"
+  )
 
-## RNN Performance
+print(cluster_profiles)
+```
+After reading the above output we can classify our clusters, recall we want explorers to have high: avg_cats_per_click, avg_switches; low: avg_revisit. Focused browsers to have high: avg_revisit, avg_items_per_click; low: avg_switches, avg_cats_per_clicks. And we want price sensitive to have high: avg_price_var, avg_price_tier; low: avg_switches.
 
-## Exension of Study
+```{r}
+cluster_labels <- c(
+  "1" = "Price sensitive",
+  "2" = "Focused browser",
+  "3" = "Explorer"
+)
 
-In this section we focus on some other questions that stem from our initial study. The previous models that we have build have focused on classifying users as high or low engagement (number of clicks in a session). We will look at two separate interesting cases that tell us a little more about the users, and how they may interact with the website. First, we will further classify users as focused, explorers and price sensitive users. We will also look at predicting the users next click based on their previous clicks. This is useful information for companies, especially for targeted advertising. 
+session_features_norm <- session_features_norm %>%
+  mutate(segment = recode(style_cluster, !!!cluster_labels))
+```
 
-Lets expand on what it means for a user to be classified as focused, explorer or price sensitive. We say a user is (focused) if their number of clicks is low, and they stay in consistent categories. We say a user is an (explorer) if their click count is high, and they visit many diverse categories. Finally, we call a user price sensitive if they stay in consistently high, or low priced sections. 
+Now we validate our above model with silhouette:
+```{r}
+sil <- silhouette(km_style$cluster, dist(X_style))
+cat("Mean silhouette width:", round(mean(sil[, 3]), 3), "\n")
+
+fviz_silhouette(sil) +
+  labs(title = "Silhouette — k=3 style clusters") +
+  theme_minimal()
+```
+Since our mean silhouette width achieves a value of 0.259, we say that it has reasonable structure. 
+
+Lets validate with bootstrap stability
+```{r}
+library(fpc)
+
+set.seed(051026)
+
+stability <- clusterboot(
+  X_style,
+  B = 100,
+  clustermethod = kmeansCBI,
+  k = 3,
+  seed = 051026
+)
+
+cat("cluster stability: \n")
+print(round(stability$bootmean, 3))
+```
+We achieved high cluster stability for all three of our clusters, meaning they are each a genuine behavioral group. 
+
+```{r}
+# PCA projection
+pca <- prcomp(X_style, center = FALSE, scale. = FALSE)
+pcs <- as.data.frame(pca$x[, 1:2])
+pcs$segment <- session_features_norm$segment
+
+ggplot(pcs, aes(x = PC1, y = PC2, colour = segment)) +
+  geom_point(alpha = 0.35, size = 1.2) +
+  stat_ellipse(level = 0.85, linewidth = 1) +
+  scale_colour_manual(values = c(
+    "Explorer"         = "blue",
+    "Focused browser"  = "green",
+    "Price-sensitive"  = "red"
+  )) +
+  labs(title = "Browsing style segments — PCA projection") +
+  theme_minimal()
+
+# Radar chart of cluster profiles
+library(fmsb)
+
+radar_data <- cluster_profiles |>
+  select(avg_cats_per_click, avg_items_per_click,
+         avg_switches, avg_price_var,
+         avg_revisit, avg_price_tier) |>
+  as.data.frame()
+
+rownames(radar_data) <- cluster_labels
+
+radar_data <- rbind(
+  apply(radar_data, 2, max),
+  apply(radar_data, 2, min),
+  radar_data
+)
+
+radarchart(
+  radar_data,
+  pcol  = c("blue", "green", "red"),
+  pfcol = adjustcolor(c("blue", "green", "red"), 0.2),
+  plwd  = 2,
+  cglcol = "grey",
+  title = "Behavioural profiles per segment"
+)
+legend("topright",
+  legend = cluster_labels,
+  col    = c("blue", "green", "red"),
+  lty = 1, lwd = 2, bty = "n"
+)
+```
+
+
+## Old Model Evaluations: New Data Structure
+Now that we have collapsed and restructured our data, lets revisit some of our older models and evaluate their performance: 
+
+NOTE: We are assigning labels to our data now, entering a supervised approach. Some limitations: 
+
+```{r}
+# First create a binary response: 
+
+session_features <- session_features %>%
+  mutate(high_engagement )
+```
+
+Logistic Regression: 
+```{r}
+library(glm)
+
+# Lets focus in on predicting high engagement users, using our features 
+model_logit <- glm(high_engagement~ 
+                     n_clicks + n_categories + mean_price + sd_price + revisit_rate,
+                   data = train_sessions)
+```
+
+
+## Exension of Study: RNN fit
+
+In this section we focus on some other questions that stem from our initial study. 
 
 Implementation of more specific user categorization:
 ```{r}
@@ -69,5 +476,8 @@ head(clickstream)
 head(user_sessions) # first six sessions (see up to sid 6)
 ```
 
+```{r}
+# Sliding window sequence
 
+```
 ## Future Study : Interpretability vs Performance
