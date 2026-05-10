@@ -23,20 +23,18 @@ library(pROC)
 
 
 ```{r}
-clickstream <- read.csv(here("Data", "RawData", "e-shop_clothing2008.csv"),
-                        header = TRUE,
-                        sep = ";")
+#clickstream <- read.csv(here("Data", "RawData", "e-shop_clothing2008.csv"),
+#                        header = TRUE,
+#                        sep = ";")
 
-name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
 
-clickstream <- clickstream |>
-  rename(any_of(name_map))
 
 clickstream$price_2 <- as.factor( ifelse(clickstream$price_2 == 2, 0, clickstream$price_2) )
 
-clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0) %>% as.factor()
+clickstream <- clickstream %>% mutate(across(where(is.character), as.factor)) 
 
-clickstream <- clickstream %>% mutate(across(where(is.character), as.factor))
+clickstream$price <- log(clickstream$price)
+clickstream$month <- factor( format(as.Date(clickstream$date), '%m' ) )
 
 colnames(clickstream)
 ```
@@ -64,30 +62,29 @@ confusionMatrix(factor(logpred),
 summary(logmod)
 ```
 
+
 ```{r}
+factor_cols <- c("main_category", "color", "location", 
+                 "model_photography", "page", "month")
+
+# Convert in train and test
+train_df[, factor_cols] <- lapply(train_df[, factor_cols], factor)
+test_df[, factor_cols]  <- lapply(test_df[, factor_cols], factor)
+
+# Then run your existing code as-is
+keep_cols <- c("main_category", "color", "location", "price", 
+               "model_photography", "page", "month")
+
+xtrain <- train_df[, keep_cols]
+ytrain <- train_df[, "hi_clicks_avg"] %>% factor()
+xtest  <- test_df[, keep_cols]
+ytest  <- test_df[, "hi_clicks_avg"] %>% factor()
 
 ```
 
 
-
 ```{r}
-keep_cols <- c("main_category", "color", "location", "price", 
-               "model_photography", "page", "month")
-
-xtrain <- subset( train_df, select = -hi.clicks)
-xtrain <- train_df[, keep_cols]
-ytrain <- train_df[,'hi.clicks']
-
-xtest <- subset( test_df, select = -hi.clicks)
-xtest <- test_df[, keep_cols]
-ytest <- test_df[,'hi.clicks']
-rf_fit <- randomForest(x = xtrain, y = factor(ytrain),
-                       ntree = 500,
-                       sampsize = c("0" = 1000, "1" = 1000),
-                       importance = TRUE)
 barfit <- pbart(xtrain,as.numeric(as.character(ytrain)), x.test = xtest)
-#rf_fit <- randomForest(x = xtrain, y = factor(ytrain), ntree = 500, importance = TRUE)
-
 ```
 
 ```{r}
@@ -98,7 +95,7 @@ bart_probs <- barfit$prob.test.mean
 bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
 
 # Confusion matrix
-confusionMatrix(factor(bart_pred), factor(ytest))
+confusionMatrix(factor(bart_pred), factor(ytest), positive = '1')
 
 
 roc_bart <- roc(as.numeric(as.character(ytest)), bart_probs)
@@ -106,10 +103,14 @@ auc(roc_bart)
 plot(roc_bart, main = "BART ROC Curve")
 ```
 
-
+For median: Accuracy : 0.6257  
+For average: Accuracy : 0.6973
 
 ```{r}
-
+rf_fit <- randomForest(x = xtrain, y = factor(ytrain),
+                       ntree = 500,
+                       sampsize = c("0" = 1000, "1" = 1000),
+                       importance = TRUE)
 
 # Get predicted probabilities for class 1
 rf_prob <- predict(rf_fit, xtest, type = "prob")[, 2]
@@ -124,6 +125,8 @@ bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
 
 confusionMatrix(factor(bart_pred), factor(ytest))
 ```
+Random forest Accuracy : 0.6497 
+
 ```{r}
 library(xgboost)
 
@@ -158,13 +161,32 @@ plot(roc_xgb, main = paste("XGBoost ROC — AUC:", round(auc(roc_xgb), 3)))
 
 
 ```{r}
-pcr.fit <- pcr(hi.clicks ~ main_category + color + location + price + model_photography + page + month, 
-               data = train_df, scale = TRUE, validation = 'CV' )
+# 1. Build xtrain/xtest AFTER all preprocessing
+keep_cols <- c("main_category", "color", "location", "price", 
+               "model_photography", "page", "month")
 
-summary(pcr.fit)
+xtrain <- data.frame(lapply(train_df[, keep_cols], as.numeric))
+xtest  <- data.frame(lapply(test_df[, keep_cols],  as.numeric))
+ytrain <- factor(train_df$hi_clicks_avg)
+ytest  <- factor(test_df$hi_clicks_avg)
+
+# 2. Verify dimensions before fitting
+dim(xtrain)   # e.g. 104248 x 7
+dim(xtest)
+levels(ytrain)  # "0" "1"
+
+# 3. Fit
+plsda.fit <- train(x          = xtrain,
+                   y          = ytrain,
+                   method     = "pls",
+                   tuneLength = 5,
+                   trControl  = trainControl(method = "cv", number = 10),
+                   preProcess = c("center", "scale"))
+
+# 4. Predict and evaluate
+pred_class <- predict(plsda.fit, newdata = xtest)
+confusionMatrix(pred_class, ytest)
 ```
-
-
 
 
 

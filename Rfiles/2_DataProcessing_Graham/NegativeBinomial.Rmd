@@ -1,0 +1,157 @@
+---
+title: "PCR"
+author: "Graham I. Gordon"
+date: "2026-05-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(boot)
+library(tidyverse)
+library(here)
+library(caret)
+library(pls)
+```
+
+
+```{r}
+clickstream <- read.csv(here("Data", "RawData", "e-shop_clothing2008.csv"),
+                        header = TRUE,
+                        sep = ";")
+
+name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
+
+clickstream <- clickstream |>
+  rename(any_of(name_map))
+
+clickstream$price_2 <- as.factor( ifelse(clickstream$price_2 == 2, 0, clickstream$price_2) )
+
+clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0) %>% as.factor()
+
+clickstream <- clickstream %>% mutate(across(where(is.character), as.factor))
+
+colnames(clickstream)
+```
+
+```{r}
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$price_2)
+```
+
+
+```{r}
+library(fastDummies)
+train_df_encoded <- dummy_cols(train_df, 
+                                select_columns = c("main_category", "color", "location", "month"),
+                                remove_first_dummy = TRUE,
+                                remove_selected_columns = TRUE)
+
+pcr.fit <- pcr(hi.clicks ~ ., data = train_df_encoded[, relevant_cols], 
+               scale = TRUE, validation = "CV")
+```
+
+
+
+
+```{r}
+library(MASS)  # for fitdistr
+library(dplyr)
+
+# Example: your clickstream data
+# Each row is a click event; we want the MAX order per session (total clicks)
+session_lengths <- clickstream %>%
+  group_by(sid) %>%
+  summarise(total_clicks = max(order))
+
+# Look at the distribution
+hist(session_lengths$total_clicks, 
+     breaks = 30,
+     main = "Distribution of Session Lengths",
+     xlab = "Total Clicks per Session")
+```
+
+
+
+```{r}
+# Fit Negative Binomial to session lengths
+fit <- fitdistr(session_lengths$total_clicks, "negative binomial")
+
+# Extract parameters
+r  <- fit$estimate["size"]   # dispersion/shape
+mu <- fit$estimate["mu"]     # mean session length
+
+cat("r (size):", r, "\n")
+cat("mu (mean):", mu, "\n")
+```
+
+
+
+```{r}
+predict_total_clicks <- function(k, r, mu) {
+  # Convert mu to probability p
+  p <- r / (r + mu)
+  
+  # Posterior parameters after observing k clicks
+  r_post  <- r + k
+  mu_post <- mu  # mean shifts; expected additional clicks:
+  
+  expected_additional <- mu * (r + k) / r  - k
+  expected_total      <- k + max(0, expected_additional)
+  
+  return(list(
+    observed       = k,
+    expected_total = round(expected_total, 1),
+    expected_more  = round(max(0, expected_additional), 1)
+  ))
+}
+
+# Example: session currently at click 5
+predict_total_clicks(k = 5, r = r, mu = mu)
+
+# Example: session currently at click 15
+predict_total_clicks(k = 15, r = r, mu = mu)
+```
+
+```{r}
+# For every session, predict total given clicks so far
+live_predictions <- clickstream %>%
+  group_by(sid) %>%
+  summarise(current_clicks = max(order)) %>%
+  rowwise() %>%
+  mutate(
+    predicted_total = predict_total_clicks(current_clicks, r, mu)$expected_total,
+    predicted_more  = predict_total_clicks(current_clicks, r, mu)$expected_more
+  )
+
+head(live_predictions)
+```
+
+
+```{r}
+# Overlay NBD fit on histogram
+x <- 0:max(session_lengths$total_clicks)
+nbd_probs <- dnbinom(x, size = r, mu = mu)
+```
+
+
+
+```{r}
+# Diagnose before plotting
+cat("Max clicks:", max(session_lengths$total_clicks), "\n")
+cat("Num sessions:", nrow(session_lengths), "\n")
+cat("Length of x vector:", max(session_lengths$total_clicks) + 1, "\n")
+```
+
+
+
