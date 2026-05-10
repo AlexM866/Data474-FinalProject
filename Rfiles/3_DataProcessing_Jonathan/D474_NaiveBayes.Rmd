@@ -32,7 +32,17 @@ nb.class <- predict(nb.fit, test_df)
 
 table(nb.class, test_df$hi_clicks_med)
 
-(sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
+classification.error <- (sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
+
+neg.pred.val <- (table(nb.class, test_df$hi_clicks_med)[1,1])/ (table(nb.class, test_df$hi_clicks_med)[1,1] + table(nb.class, test_df$hi_clicks_avg)[1,2])
+
+neg.pred.val <- (table(nb.class, test_df$hi_clicks_med)[2,2])/ (table(nb.class, test_df$hi_clicks_med)[2,1] + table(nb.class, test_df$hi_clicks_med)[2,2])
+
+TN.rate <- (table(nb.class, test_df$hi_clicks_med)[1,1])/ (table(nb.class, test_df$hi_clicks_med)[1,1] + table(nb.class, test_df$hi_clicks_med)[2,1])
+
+TP.rate <- (table(nb.class, test_df$hi_clicks_med)[2,2])/ (table(nb.class, test_df$hi_clicks_med)[1,2] + table(nb.class, test_df$hi_clicks_med)[2,2])
+
+c('total class error'=classification.error,'TN rate'=TN.rate,'TP rate'=TP.rate)
 ```
 ## Model Selection, AVG boundary
 
@@ -42,6 +52,16 @@ nb.class <- predict(nb.fit, test_df)
 
 table(nb.class, test_df$hi_clicks_avg)
 
-(sum(table(nb.class, test_df$hi_clicks_avg)) - table(nb.class, test_df$hi_clicks_avg)[1,1] - table(nb.class, test_df$hi_clicks_avg)[2,2])/ sum(table(nb.class, test_df$hi_clicks_avg))
+classification.error <- (sum(table(nb.class, test_df$hi_clicks_avg)) - table(nb.class, test_df$hi_clicks_avg)[1,1] - table(nb.class, test_df$hi_clicks_avg)[2,2])/ sum(table(nb.class, test_df$hi_clicks_avg))
+
+neg.pred.val <- (table(nb.class, test_df$hi_clicks_avg)[1,1])/ (table(nb.class, test_df$hi_clicks_avg)[1,1] + table(nb.class, test_df$hi_clicks_avg)[1,2])
+
+neg.pred.val <- (table(nb.class, test_df$hi_clicks_avg)[2,2])/ (table(nb.class, test_df$hi_clicks_avg)[2,1] + table(nb.class, test_df$hi_clicks_avg)[2,2])
+
+TN.rate <- (table(nb.class, test_df$hi_clicks_avg)[1,1])/ (table(nb.class, test_df$hi_clicks_avg)[1,1] + table(nb.class, test_df$hi_clicks_avg)[2,1])
+
+TP.rate <- (table(nb.class, test_df$hi_clicks_avg)[2,2])/ (table(nb.class, test_df$hi_clicks_avg)[1,2] + table(nb.class, test_df$hi_clicks_avg)[2,2])
+
+c('total class error'=classification.error,'TN rate'=TN.rate,'TP rate'=TP.rate)
 ```
 

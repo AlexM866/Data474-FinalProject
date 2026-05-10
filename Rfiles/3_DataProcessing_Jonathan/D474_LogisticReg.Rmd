@@ -71,9 +71,29 @@ pred <- ifelse(pred > 0.5, 1, 0)
 mean(test_df$hi_clicks_med != pred)
 ```
 ```{r}
-table(pred, test_df$hi_clicks_med)
+summary(logmod2)
 ```
 
+
+```{r}
+table(pred, test_df$hi_clicks_med)
+
+classification.error <- (table(pred, test_df$hi_clicks_med)[2,1] + table(pred, test_df$hi_clicks_med)[1,2])/ sum(table(pred, test_df$hi_clicks_med))
+
+neg.pred.val <- (table(pred, test_df$hi_clicks_med)[1,1])/ (table(pred, test_df$hi_clicks_med)[1,1] + table(pred, test_df$hi_clicks_avg)[1,2])
+
+neg.pred.val <- (table(pred, test_df$hi_clicks_med)[2,2])/ (table(pred, test_df$hi_clicks_med)[2,1] + table(pred, test_df$hi_clicks_med)[2,2])
+
+TN.rate <- (table(pred, test_df$hi_clicks_med)[1,1])/ (table(pred, test_df$hi_clicks_med)[1,1] + table(pred, test_df$hi_clicks_med)[2,1])
+
+TP.rate <- (table(pred, test_df$hi_clicks_med)[2,2])/ (table(pred, test_df$hi_clicks_med)[1,2] + table(pred, test_df$hi_clicks_med)[2,2])
+
+c('total class error'=classification.error,'TN rate'=TN.rate,'TP rate'=TP.rate)
+```
+
+```{r}
+sum(test_df$hi_clicks_med != pred)/length(pred)
+```
 
 
 
