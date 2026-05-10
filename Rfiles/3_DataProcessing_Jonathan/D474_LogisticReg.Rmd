@@ -91,8 +91,6 @@ plot(reg.summary_avg$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq",
 ## Model Selection, AVG
 ```{r}
 logmod3 <- glm(hi_clicks_avg ~ main_category + page + country + location + color, family = binomial, data = train_df)
-
-
 # Attempted a boot here:
 
 boot.fn <- function(data, index){
