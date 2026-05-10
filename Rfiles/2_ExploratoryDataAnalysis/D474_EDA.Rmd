@@ -14,6 +14,7 @@ clickstream <- read.csv(here("Data", "EditedData", "clickstream_dc.csv"))
 
 head(clickstream)
 str(clickstream)
+colnames(clickstream)
 ```
 Note that data has been interpreted back into a character and integer data types. We will need to convert back to date if we wish to reference it as such. (We will need this later in the document).
 
@@ -21,7 +22,7 @@ Note that data has been interpreted back into a character and integer data types
 clickstream$date <- as.Date(clickstream$date)
 
 # Same with factors, this time keep sid as 'int' type
-cols <- c("hi_clicks", "color", "model_photography", "location", "price_2", "country", "main_category", "clothing_model", "page")
+cols <- c("hi_clicks_avg", "hi_clicks_med", "color", "model_photography", "location", "price_2", "country", "main_category", "clothing_model", "page")
 
 clickstream[cols] <- lapply(clickstream[cols], as.factor)
 
@@ -107,6 +108,7 @@ clickstream %>%
 ```
 
 ```{r}
+# Visual representation of numerical variables
 clickstream %>% select(where(is.numeric)) %>% 
   pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
   ggplot(aes(x = value)) + 
@@ -119,6 +121,22 @@ clickstream %>% select(where(is.numeric)) %>%
 As we can see from our visuals, a lot of our variables seem to be exponentially distributed or uniformly distributed. The only variable that appears to have an approximately normal distribution is `price`. We may need to perform some data transformations later on. I don't have much concern over the uniformly distributed variable, since for a lot of them, it makes sense that they are uniformly distributed (like `sid`). It is important to take note now, which ones appear to be exponentially distributed, so that we know how to transform them if we encounter performance issues later on: (`hi_clicks`, `model_photography`, `page`, `clothing_model`, `color`, `country`, and `order`).
 
 # Multivariate Analysis
+
+```{r}
+str(clickstream)
+```
+
+
+```{r}
+library(corrplot)
+
+clickstream_temp <- clickstream %>%
+  select(where(is.numeric))
+
+str(clickstream_temp)
+#corrplot(clickstream_temp)
+```
+
 
 ```{r}
 par(mfrow = c(1, 2))

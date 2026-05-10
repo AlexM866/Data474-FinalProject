@@ -23,6 +23,8 @@ test_df <- clickstream[-train, ]
 # table(test_df$hi_clicks)
 ```
 
+## Model Selection, MED boundary
+
 ```{r}
 
 nb.fit <- naiveBayes(hi_clicks_med ~ main_category + page + country + location, data = train_df)
@@ -32,6 +34,8 @@ table(nb.class, test_df$hi_clicks_med)
 
 (sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
 ```
+## Model Selection, AVG boundary
+
 ```{r}
 nb.fit <- naiveBayes(hi_clicks_avg ~ main_category + page + country + location, data = train_df)
 nb.class <- predict(nb.fit, test_df)

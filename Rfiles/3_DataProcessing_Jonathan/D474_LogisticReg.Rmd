@@ -1,0 +1,125 @@
+---
+title: "D474_LogisticReg"
+output: html_document
+---
+
+```{r}
+library(glmnet)
+library(tidyverse)
+library(ISLR2)
+library(boot)
+library(here)
+library(leaps)
+```
+
+```{r}
+clickstream <- read.table(here("Data", "EditedData", "clickstream_dc.csv"),
+                             header = TRUE,
+                             sep = ",")
+
+# Unimportant features to be removed:
+clickstream <- clickstream[, !(names(clickstream)%in% c("key", "date","order","sid","clothing_model"))]
+```
+
+
+```{r}
+set.seed(543)
+train <- sample( 1:nrow(clickstream), size = .7*nrow(clickstream) )
+train_df <- clickstream[train, ]
+test_df <- clickstream[-train, ]
+table(clickstream$hi_clicks_med)
+```
+
+
+## Feature Selection, using MED boundary
+```{r}
+regfit.full_med <- regsubsets(hi_clicks_med ~ .-hi_clicks_avg, data = train_df,really.big=T)
+(reg.summary_med <- summary(regfit.full_med))
+
+par(mfrow = c(2, 2))
+plot(reg.summary_med$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="MED boundary Feat. Select RSS")
+plot(reg.summary_med$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l", main="MED boundary Feat. Select Rsq")
+```
+
+
+
+
+
+## Model Construction, bootstrap testing of features
+```{r}
+
+logmod2 <- glm(hi_clicks_med ~ main_category + page + country + location + color, family = binomial, data = train_df)
+
+
+# Attempted a boot here:
+
+boot.fn <- function(data, index){
+  coef(
+  glm(hi_clicks_med ~ main_category + page + country + location + color, family = binomial, data = data,subset=index)
+  )
+}
+
+set.seed(1)
+cboot <- boot(train_df, boot.fn, 50)
+cboot
+
+# test_df <- test_df[test_df$clothing_model != 'P28',]
+
+pred <- predict(logmod2,test_df,type='response')
+pred <- ifelse(pred > 0.5, 1, 0)
+
+mean(test_df$hi_clicks_med != pred)
+```
+```{r}
+table(pred, test_df$hi_clicks_med)
+```
+
+
+
+
+## Feature Selection, using AVG boundary
+```{r}
+regfit.full_avg <- regsubsets(hi_clicks_avg ~ .-hi_clicks_med, data = train_df,really.big=T)
+(reg.summary_avg <- summary(regfit.full_avg))
+
+par(mfrow = c(2, 2))
+plot(reg.summary_avg$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="AVG boundary Feat. Select RSS")
+plot(reg.summary_avg$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l",main="AVG boundary Feat. Select Rsq")
+```
+
+
+## Model Selection, AVG
+```{r}
+logmod3 <- glm(hi_clicks_avg ~ main_category + page + country + location + color, family = binomial, data = train_df)
+# Attempted a boot here:
+
+boot.fn <- function(data, index){
+  coef(
+  glm(hi_clicks_avg ~ main_category + page + country + location, family = binomial, data = data,subset=index)
+  )
+}
+
+set.seed(1)
+cboot <- boot(train_df, boot.fn, 50)
+cboot
+
+pred <- predict(logmod3,test_df,type = 'response')
+pred <- ifelse(pred > 0.5, 1, 0)
+
+mean(test_df$hi_clicks_avg != pred)
+```
+
+```{r}
+table(pred, test_df$hi_clicks_avg)
+```
+
+
+
+```{r}
+par(mfrow = c(2, 2))
+plot(reg.summary_med$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="MED boundary Feat. Select RSS")
+plot(reg.summary_med$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l", main="MED boundary Feat. Select Rsq")
+plot(reg.summary_avg$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="AVG boundary Feat. Select RSS")
+plot(reg.summary_avg$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l",main="AVG boundary Feat. Select Rsq")
+```
+
