@@ -71,20 +71,22 @@ cat("mu (mean):", mu, "\n")
 
 ```{r}
 predict_total_clicks <- function(k, r, mu) {
-  # Convert mu to probability p
-  p <- r / (r + mu)
+  p <- r / (r + mu)          # NB success probability
+
+  # Correct posterior: after k clicks, expected remaining
+  # E[Total | X >= k] under NB is derived from the memoryless-ish
+  # property — but NB is NOT memoryless, so remaining clicks decrease
   
-  # Posterior parameters after observing k clicks
-  r_post  <- r + k
-  mu_post <- mu  # mean shifts; expected additional clicks:
+  # Posterior expected total given at least k clicks already observed:
+  # E[N | N >= k] = k + (1-p)/p * ... requires truncated NB
   
-  expected_additional <- mu * (r + k) / r  - k
-  expected_total      <- k + max(0, expected_additional)
+  # Simplest defensible approach: use the truncated NB mean
+  expected_total <- k + (mu - k) * (1 - p)^k / sum(dnbinom(k:1000, size=r, mu=mu))
   
   return(list(
     observed       = k,
-    expected_total = round(expected_total, 1),
-    expected_more  = round(max(0, expected_additional), 1)
+    expected_total = round(max(k, expected_total), 1),
+    expected_more  = round(max(0, expected_total - k), 1)
   ))
 }
 
@@ -131,6 +133,295 @@ cat("Max clicks:", max(session_lengths$total_clicks), "\n")
 cat("Num sessions:", nrow(session_lengths), "\n")
 cat("Length of x vector:", max(session_lengths$total_clicks) + 1, "\n")
 ```
+
+```{r}
+# Build evaluation dataset: for each session, at each click point,
+# predict total and compare to actual final click count
+
+actual_totals <- clickstream %>%
+  group_by(sid) %>%
+  summarise(actual_total = max(order))
+
+# Generate predictions at every observed click point
+eval_df <- clickstream %>%
+  dplyr::select(sid, order) %>%
+  rename(k = order) %>%
+  left_join(actual_totals, by = "sid") %>%
+  rowwise() %>%
+  mutate(
+    predicted_total = predict_total_clicks(k, r, mu)$expected_total,
+    error           = predicted_total - actual_total,
+    abs_error       = abs(error)
+  ) %>%
+  ungroup()
+
+# Overall MAE and RMSE
+eval_df %>%
+  summarise(
+    MAE  = mean(abs_error),
+    RMSE = sqrt(mean(error^2)),
+    bias = mean(error)       # positive = over-predicting
+  )
+```
+```{r}
+# Calibration check: are predicted totals unbiased?
+eval_df %>%
+  ggplot(aes(x = predicted_total, y = actual_total)) +
+  geom_point(alpha = 0.2) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  labs(title = "Predicted vs Actual Session Length",
+       x = "Predicted Total Clicks",
+       y = "Actual Total Clicks")
+```
+
+```{r}
+# Compare fitted mu to actual data
+cat("Fitted mu:", mu, "\n")
+cat("Actual mean session length:", mean(actual_totals$actual_total), "\n")
+cat("Actual median:", median(actual_totals$actual_total), "\n")
+cat("Actual max:", max(actual_totals$actual_total), "\n")
+
+cat("Max session length in data:", max(actual_totals$actual_total), "\n")
+```
+```{r}
+# Is error driven by a few long sessions?
+eval_df %>%
+  ggplot(aes(x = actual_total, y = error)) +
+  geom_point(alpha = 0.2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  geom_smooth() +
+  labs(title = "Error vs Actual Session Length",
+       x = "Actual Total Clicks", y = "Prediction Error")
+```
+```{r}
+eval_df %>%
+  filter(actual_total <= 50) %>%
+  summarise(
+    MAE  = mean(abs_error),
+    RMSE = sqrt(mean(error^2)),
+    bias = mean(error),
+    n    = n()
+  )
+```
+```{r}
+actual_totals %>%
+  mutate(click_bin = cut(actual_total, 
+                         breaks = c(0, 5, 10, 15, 20, 30, 50, Inf),
+                         labels = c("1-5", "6-10", "11-15", "16-20", "21-30", "31-50", "50+"))) %>%
+  count(click_bin) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = click_bin, y = prop)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), 
+            vjust = -0.5, size = 3.5) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Distribution of Session Lengths",
+       x = "Total Clicks per Session",
+       y = "Proportion of Sessions") +
+  theme_minimal()
+```
+
+
+```{r}
+# Cap at 11
+x <- 0:11
+nbd_probs <- dnbinom(x, size = r, mu = mu)
+
+session_lengths_capped <- session_lengths %>%
+  filter(total_clicks <= 11)
+
+hist(session_lengths_capped$total_clicks,
+     breaks = 0:12 - 0.5,   # center bars on integers
+     freq = FALSE,
+     main = "NBD Fit to Session Lengths (≤ 11 Clicks)",
+     xlab = "Total Clicks")
+
+lines(x, nbd_probs, col = "red", lwd = 2, type = "b", pch = 16)
+legend("topright", legend = "NBD fit", col = "red", lwd = 2)
+```
+
+
+```{r}
+actual_totals <- clickstream %>%
+  group_by(sid) %>%
+  summarise(actual_total = max(order)) %>%
+  filter(actual_total <= 10)
+
+eval_df <- clickstream %>%
+  dplyr::select(sid, order) %>%
+  rename(k = order) %>%
+  inner_join(actual_totals, by = "sid") %>%  # inner_join drops sessions > 10
+  rowwise() %>%
+  mutate(
+    predicted_total = predict_total_clicks(k, r, mu)$expected_total,
+    error           = predicted_total - actual_total,
+    abs_error       = abs(error)
+  ) %>%
+  ungroup()
+
+eval_df %>%
+  summarise(
+    MAE  = mean(abs_error),
+    RMSE = sqrt(mean(error^2)),
+    bias = mean(error)
+  )
+```
+```{r}
+short <- session_lengths %>% filter(total_clicks <= 10)
+long  <- session_lengths %>% filter(total_clicks > 10)
+
+fit_short <- fitdistr(short$total_clicks, "negative binomial")
+fit_long  <- fitdistr(long$total_clicks,  "negative binomial")
+
+prop_short <- nrow(short) / nrow(session_lengths)
+prop_long  <- 1 - prop_short
+
+cat("Proportion short:", prop_short, "\n")
+cat("Proportion long:", prop_long, "\n")
+```
+
+
+```{r}
+# Fit each component
+fit_short <- fitdistr(short$total_clicks, "negative binomial")
+fit_long  <- fitdistr(long$total_clicks,  "negative binomial")
+
+r_short  <- fit_short$estimate["size"]
+mu_short <- fit_short$estimate["mu"]
+r_long   <- fit_long$estimate["size"]
+mu_long  <- fit_long$estimate["mu"]
+
+cat("Short - r:", r_short, "| mu:", mu_short, "\n")
+cat("Long  - r:", r_long,  "| mu:", mu_long,  "\n")
+```
+
+
+```{r}
+predict_mixture <- function(k, r_short, mu_short, r_long, mu_long, 
+                             prop_short, prop_long, max_clicks = 5000) {
+  
+  # P(session is short | we've already seen k clicks)
+  # If k > 10, it MUST be a long session
+  if (k > 10) {
+    p_short_given_k <- 0
+    p_long_given_k  <- 1
+  } else {
+    # P(N >= k | short) * P(short)
+    p_k_short <- pnbinom(k - 1, size = r_short, mu = mu_short, 
+                          lower.tail = FALSE) * prop_short
+    p_k_long  <- pnbinom(k - 1, size = r_long,  mu = mu_long,  
+                          lower.tail = FALSE) * prop_long
+    
+    # Normalize
+    p_short_given_k <- p_k_short / (p_k_short + p_k_long)
+    p_long_given_k  <- p_k_long  / (p_k_short + p_k_long)
+  }
+  
+  # Expected total from each component given N >= k
+  expected_from_component <- function(k, r, mu) {
+    ns    <- k:max_clicks
+    probs <- dnbinom(ns, size = r, mu = mu)
+    if (sum(probs) == 0) return(k)
+    probs_cond <- probs / sum(probs)
+    sum(ns * probs_cond)
+  }
+  
+  exp_short <- expected_from_component(k, r_short, mu_short)
+  exp_long  <- expected_from_component(k, r_long,  mu_long)
+  
+  # Mixture expectation
+  expected_total <- p_short_given_k * exp_short + p_long_given_k * exp_long
+  
+  return(list(
+    observed        = k,
+    expected_total  = round(expected_total, 1),
+    expected_more   = round(max(0, expected_total - k), 1),
+    p_short         = round(p_short_given_k, 3),
+    p_long          = round(p_long_given_k, 3)
+  ))
+}
+```
+
+
+```{r}
+# Test it
+predict_mixture(k = 2,  r_short, mu_short, r_long, mu_long, prop_short, prop_long)
+predict_mixture(k = 5,  r_short, mu_short, r_long, mu_long, prop_short, prop_long)
+predict_mixture(k = 11, r_short, mu_short, r_long, mu_long, prop_short, prop_long)
+predict_mixture(k = 30, r_short, mu_short, r_long, mu_long, prop_short, prop_long)
+```
+
+```{r}
+# Rebuild actual_totals without cap
+actual_totals <- clickstream %>%
+  group_by(sid) %>%
+  summarise(actual_total = max(order, na.rm = TRUE))
+
+# Rebuild short/long split
+short <- session_lengths %>% filter(total_clicks <= 10)
+long  <- session_lengths %>% filter(total_clicks > 10)
+
+prop_short <- nrow(short) / nrow(session_lengths)
+prop_long  <- 1 - prop_short
+
+# Rerun eval
+eval_df_mix <- clickstream %>%
+  dplyr::select(sid, order) %>%
+  rename(k = order) %>%
+  left_join(actual_totals, by = "sid") %>%
+  left_join(k_lookup, by = "k") %>%
+  mutate(
+    error     = predicted_total - actual_total,
+    abs_error = abs(error)
+  )
+
+eval_df_mix %>%
+  summarise(
+    MAE  = mean(abs_error),
+    RMSE = sqrt(mean(error^2)),
+    bias = mean(error)
+  )
+```
+
+
+```{r}
+# Empirical proportions
+emp <- session_lengths %>%
+  count(total_clicks) %>%
+  mutate(prop = n / sum(n))
+
+# Mixture model predicted proportions
+mix_probs <- tibble(total_clicks = 1:195) %>%
+  mutate(
+    prob = prop_short * dnbinom(total_clicks, size = r_short, mu = mu_short) +
+           prop_long  * dnbinom(total_clicks, size = r_long,  mu = mu_long)
+  )
+
+# Overlay
+ggplot() +
+  geom_col(data = emp, aes(x = total_clicks, y = prop), 
+           fill = "steelblue", alpha = 0.6) +
+  geom_line(data = mix_probs, aes(x = total_clicks, y = prob), 
+            color = "red", lwd = 1) +
+  geom_point(data = mix_probs, aes(x = total_clicks, y = prob), 
+             color = "red", size = 1) +
+  xlim(0, 50) +  # cap x axis for readability
+  labs(title = "Mixture NBD Fit vs Empirical Session Lengths",
+       x = "Total Clicks per Session",
+       y = "Proportion") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 
