@@ -8,7 +8,7 @@ output: html_document
 ```{r, eval = FALSE}
 # Force package installation
 options(download.file.method = "wininet")
-install.packages("fmsb")
+install.packages("torch")
 ```
 
 
@@ -491,28 +491,320 @@ model_logit <- glm(high_engagement~
 ```
 
 ## Exension of Study: RNN fit
+In this section we focus on a different question that stem from our initial study. Another useful tool that the website can use is predicting the next click of users based on their previous browsing session behavior. This is useful for targeted advertising and website navigation optimization that can be utilized by frontend developers. 
 
-In this section we focus on some other questions that stem from our initial study. 
+We can use the clustering results we found above to enrich our RNN.
+Here's what the RNN with clustering sees: 
 
-Implementation of more specific user categorization:
+[click_1, click_2, ..., click_N] + segment_label -> click_N+1 prediction
+
+Recurrent Neural Network (RNN): Data preparation
 ```{r}
 # Data preparation
-clickstream <- clickstream %>% 
-  select(-key) %>%
-  arrange(sid, order)
+cs_model_ds <- clickstream %>%
+  left_join(
+    session_features_norm %>%
+      select(sid, segment),
+    by = "sid"
+  ) %>%
+  filter(!is.na(segment)) %>% # excluding bounce sessions 
+  arrange(sid, order) 
 
-# This will take some time, recall we have 24,026 unique session IDs!
-user_sessions <- clickstream %>%
-  group_by(sid) %>% group_split()
+cs_model_ds <- cs_model_ds %>%
+  mutate(segment_id = as.integer(factor(segment)))
+
+segment_vocab_size <- n_distinct(cs_model_ds$segment_id)
+
+## Now we have a data set (cs_model_ds) that can be used in the RNN context
+```
+
+RNN: Feature encoding
+```{r}
+categorical_cols <- c("main_category", "country", "clothing_model", "color", "location", "model_photography", "page")
+
+encoders <- list()
+for (col in categorical_cols) {
+  lvls <- unique(cs_model_ds[[col]])
+  encoders[[col]] <- lvls
+  cs_model_ds[[col]] <- as.integer(factor(cs_model_ds[[col]], levels = lvls))
+}
+
+# Set threshold for rare categories
+min_freq <- 5
+for (col in categorical_cols){
+  freq <- table(cs_model_ds[[col]])
+  rare <- as.integer(names(freq[freq < min_freq]))
+  cs_model_ds[[col]][cs_model_ds[[col]] %in% rare] <- 0L
+}
+
+# Encoding for numeric features
+num_cols <- c("price", "hi_clicks_avg", "hi_clicks_med")
+for (col in num_cols){
+  cs_model_ds[[col]] <- scale(cs_model_ds[[col]])[, 1]
+}
+
+# Engineer cyclical date features
+library(lubridate)
+cs_model_ds <- cs_model_ds %>%
+  mutate(
+    dow_sin = sin(2 * pi * wday(date) / 7), # day of week
+    dow_cos = cos(2 * pi * wday(date) / 7),
+    month_sin = sin(2 * pi * month(date) / 12),
+    month_cos = cos(2 * pi * month(date) / 12),
+  ) %>%
+  select(-date)
+
+all_num_cols <- c(num_cols, "dow_sin", "dow_cos", "month_sin", "month_cos")
+```
+
+RNN: Sequencing
+```{r}
+library(purrr)
+
+sessions <- cs_model_ds %>%
+  group_by(sid) %>%
+  group_split()
+
+make_seqs <- function(session){
+  n <- nrow(session)
+  if (n < 2) return(NULL)
   
-head(clickstream)
-head(user_sessions) # first six sessions (see up to sid 6)
+  map(2:n, function(i){
+    list(
+      input = session[1:(i - 1), ], # this is our i-1 pathway
+      target = session$main_category[i],
+      segment_id = session$segment_id[1]
+    )
+  })
+} 
 ```
 
 ```{r}
-# Sliding window sequence
+all_seqs <- sessions %>%
+  map(make_seqs) %>%
+  compact() %>%
+  list_flatten()
+```
+
+RNN: Split and Train
+```{r}
+set.seed(051026)
+
+all_sids <- unique(cs_model_ds$sid)
+n <- length(all_sids)
+train_sids <- sample(all_sids, floor(0.7 * n))
+remaining <- setdiff(all_sids, train_sids)
+val_sids <- sample(remaining, floor(0.5 * length(remaining)))
+test_sids <- setdiff(remaining, val_sids)
+
+get_sid <- function(seq) unique(seq$input$sid)[1]
+
+train_seq <- keep(all_seqs, ~get_sid(.x) %in% train_sids)
+val_seq   <- keep(all_seqs, ~get_sid(.x) %in% val_sids)
+test_seq  <- keep(all_seqs, ~get_sid(.x) %in% test_sids)
+```
+
+RNN: Dataset and Loader
+```{r}
+library(torch)
+
+MAX_LEN <- 20
+NUM_NUMERIC  <- length(all_num_cols)
+
+click_dataset <- dataset(
+  name = "ClickDataset",
+
+  initialize = function(sequences) {
+    self$sequences <- sequences
+  },
+
+  .getitem = function(i) {
+    seq   <- self$sequences[[i]]
+    inp   <- seq$input
+    n     <- nrow(inp)
+
+    # Truncate 
+    if (n > MAX_LEN) inp <- tail(inp, MAX_LEN)
+    pad   <- MAX_LEN - nrow(inp)
+
+    # Numeric tensor 
+    num_mat <- as.matrix(inp[, all_num_cols])
+    if (pad > 0) # padding
+      num_mat <- rbind(matrix(0, pad, ncol(num_mat)), num_mat)
+
+    # Categorical tensors
+    cat_tensors <- lapply(categorical_cols, function(col) {
+      vals <- inp[[col]]
+      if (pad > 0) vals <- c(rep(0L, pad), vals) # padding
+      torch_tensor(vals, dtype = torch_long())
+    })
+
+    list(
+      cats      = categorical_tensors,
+      num       = torch_tensor(num_mat, dtype = torch_float()),
+      segment   = torch_tensor(seq$segment_id, dtype = torch_long()),
+      target    = torch_tensor(seq$target - 1L, dtype = torch_long())
+    )
+  },
+
+  .length = function() length(self$sequences)
+)
+
+train_ds <- click_dataset(train_seq)
+val_ds   <- click_dataset(val_seq)
+test_ds  <- click_dataset(test_seq)
+
+train_dl <- dataloader(train_ds, batch_size = 64, shuffle = TRUE)
+val_dl   <- dataloader(val_ds,   batch_size = 128)
+test_dl  <- dataloader(test_ds,  batch_size = 128)
+```
+
+RNN: Model def
+
+- Note: below three chunks are index fixes. We switch 1 to <UNK> token
+```{r}
+for (col in categorical_cols) {
+  lvls <- unique(cs_model_ds[[col]])
+  encoders[[col]] <- lvls
+  # Encode starting at 2, reserve 1 for UNK
+  cs_model_ds[[col]] <- as.integer(factor(cs_model_ds[[col]],
+                                           levels = lvls)) + 1L
+}
+
+min_freq <- 5
+for (col in categorical_cols) {
+  freq <- table(cs_model_ds[[col]])
+  rare <- as.integer(names(freq[freq < min_freq]))
+  cs_model_ds[[col]][cs_model_ds[[col]] %in% rare] <- 1L
+}
+
+# Padding in sequences also becomes 1
+# Update vocab sizes — now max index is n_levels + 1
+vocab_sizes <- sapply(categorical_cols, function(col)
+  max(cs_model_ds[[col]], na.rm = TRUE))
+```
+
+```{r}
 
 ```
+
+```{r}
+click_rnn <- nn_module(
+  "ClickRNN",
+
+  initialize = function(vocab_sizes,
+                        embed_dim       = 16,
+                        num_numeric     = NUM_NUMERIC,
+                        hidden_dim      = 128,
+                        num_classes,
+                        segment_vocab   = 3,
+                        segment_embed   = 8,
+                        dropout         = 0.3) {
+
+    self$embeddings <- nn_module_list(
+      lapply(vocab_sizes, function(v)
+        nn_embedding(v + 1L, embed_dim))
+    )
+
+    self$segment_embed <- nn_embedding(segment_vocab + 1L, segment_embed)
+
+    lstm_input_dim <- length(vocab_sizes) * embed_dim + num_numeric
+
+    self$lstm    <- nn_lstm(lstm_input_dim, hidden_dim,
+                            batch_first = TRUE, dropout = dropout,
+                            num_layers  = 2)
+    self$dropout <- nn_dropout(dropout)
+
+    #LSTM hidden + segment embedding
+    self$classifier <- nn_linear(hidden_dim + segment_embed, num_classes)
+  },
+
+  forward = function(cats, num, segment) {
+    # Embed each categorical click feature
+    embeds <- lapply(seq_along(cats), function(i)
+      self$embeddings[[i]](cats[[i]]) 
+    )
+
+    # Concatenate click features along feature dimension
+    x <- torch_cat(c(embeds, list(num)), dim = -1)
+
+    # Run through LSTM, take last timestep
+    out <- self$lstm(x)
+    h <- out[[1]][ , dim(out[[1]])[2], ]   # (batch, hidden_dim)
+    h <- self$dropout(h)
+
+    # Embed session-level segment and concatenate
+    seg <- self$segment_embed(segment) # (batch, segment_embed)
+    h <- torch_cat(list(h, seg), dim = -1) # (batch, hidden + seg_embed)
+
+    self$classifier(h) # (batch, num_classes)
+  }
+)
+```
+
+RNN: Training loop
+```{r, eval = FALSE}
+vocab_sizes <- sapply(categorical_cols, function(col)
+  max(cs_model_ds[[col]], na.rm = TRUE))
+
+num_classes <- max(cs_model_ds$main_category, na.rm = TRUE)
+
+model <- click_rnn(
+  vocab_sizes = vocab_sizes,
+  embed_dim = 16,
+  hidden_dim = 128,
+  num_classes = num_classes,
+  segment_vocab = segment_vocab_size,
+  segment_embed = 8,
+  dropout = 0.3
+)
+
+optimizer <- optim_adam(model$parameters, lr = 1e-3)
+loss_fn <- nn_cross_entropy_loss()
+scheduler <- lr_step(optimizer, step_size = 5, gamma = 0.5)
+
+best_val_loss <- Inf
+
+for (epoch in 1:30) {
+
+  # Training
+  model$train()
+  train_loss <- 0
+
+  coro::loop(for (batch in train_dl) {
+    optimizer$zero_grad()
+    logits <- model(batch$cats, batch$num, batch$segment)
+    loss <- loss_fn(logits, batch$target)
+    loss$backward()
+    nn_utils_clip_grad_norm_(model$parameters, max_norm = 1.0)
+    optimizer$step()
+    train_loss <- train_loss + loss$item()
+  })
+
+  # Validation
+  model$eval()
+  val_loss <- 0
+
+  with_no_grad({
+    coro::loop(for (batch in val_dl) {
+      logits <- model(batch$cats, batch$num, batch$segment)
+      val_loss <- val_loss + loss_fn(logits, batch$target)$item()
+    })
+  })
+
+  scheduler$step()
+
+  cat(sprintf("Epoch %2d | Train loss: %.4f | Val loss: %.4f\n",
+              epoch, train_loss, val_loss))
+
+  # Save best model
+  if (val_loss < best_val_loss) {
+    best_val_loss <- val_loss
+    torch_save(model, "best_click_rnn.pt")
+  }
+}
+```
+
 
 ## Future Study : Interpretability vs Performance
 
