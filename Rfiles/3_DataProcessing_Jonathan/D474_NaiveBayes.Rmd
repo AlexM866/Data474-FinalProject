@@ -7,6 +7,7 @@ output: html_document
 library(tidyverse)
 library(here)
 library(e1071)
+library(caret)
 ```
 
 ```{r}
@@ -27,10 +28,25 @@ test_df <- clickstream[-train, ]
 
 ```{r}
 
+train_control <- trainControl(method = "cv", number = 10)
+train_df$hi_clicks_med <- as.factor(train_df$hi_clicks_med)
+# Train the model
+nb.fit.cv <- train(hi_clicks_med ~ main_category + page + country + location, data = train_df, trControl = train_control, method = "naive_bayes")
+nb.fit.cv
+
+nb.cv.class <- predict(nb.fit.cv, test_df)
+
+table(nb.cv.class, test_df$hi_clicks_med)
+
+```
+
+
+```{r}
+set.seed(123)
 nb.fit <- naiveBayes(hi_clicks_med ~ main_category + page + country + location, data = train_df)
 nb.class <- predict(nb.fit, test_df)
 
-table(nb.class, test_df$hi_clicks_med)
+table(nb.class, test_df$hi_clicks_med)  # same as the cv, so the estimates match
 
 classification.error <- (sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
 

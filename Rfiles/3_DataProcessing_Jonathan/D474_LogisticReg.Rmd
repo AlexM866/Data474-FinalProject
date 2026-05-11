@@ -36,9 +36,9 @@ table(clickstream$hi_clicks_med)
 regfit.full_med <- regsubsets(hi_clicks_med ~ .-hi_clicks_avg, data = train_df,really.big=T)
 (reg.summary_med <- summary(regfit.full_med))
 
-par(mfrow = c(2, 2))
-plot(reg.summary_med$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="MED boundary Feat. Select RSS")
-plot(reg.summary_med$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l", main="MED boundary Feat. Select Rsq")
+par(mfrow = c(1, 2))
+plot(reg.summary_med$rss, xlab = "Number of Variables", ylab = "RSS", type = "l",main="Best Subset RSS")
+plot(reg.summary_med$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "l", main="Best Subset Rsq")
 ```
 
 
@@ -49,6 +49,8 @@ plot(reg.summary_med$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq",
 ```{r}
 
 logmod2 <- glm(hi_clicks_med ~ main_category + page + country + location + color, family = binomial, data = train_df)
+
+set.seed(17)
 
 
 # Attempted a boot here:
@@ -61,7 +63,7 @@ boot.fn <- function(data, index){
 
 set.seed(1)
 cboot <- boot(train_df, boot.fn, 50)
-cboot
+# cboot
 
 # test_df <- test_df[test_df$clothing_model != 'P28',]
 
@@ -69,9 +71,6 @@ pred <- predict(logmod2,test_df,type='response')
 pred <- ifelse(pred > 0.5, 1, 0)
 
 mean(test_df$hi_clicks_med != pred)
-```
-```{r}
-summary(logmod2)
 ```
 
 
@@ -88,7 +87,9 @@ TN.rate <- (table(pred, test_df$hi_clicks_med)[1,1])/ (table(pred, test_df$hi_cl
 
 TP.rate <- (table(pred, test_df$hi_clicks_med)[2,2])/ (table(pred, test_df$hi_clicks_med)[1,2] + table(pred, test_df$hi_clicks_med)[2,2])
 
-c('total class error'=classification.error,'TN rate'=TN.rate,'TP rate'=TP.rate)
+cv.error <- cv.glm(train_df, logmod2, K = 10)$delta[1]
+
+c('cv error' = cv.error,'test class error'=classification.error,'TN rate'=TN.rate,'TP rate'=TP.rate)
 ```
 
 ```{r}
