@@ -34,7 +34,7 @@ table(nb.class, test_df$hi_clicks_med)
 
 classification.error <- (sum(table(nb.class, test_df$hi_clicks_med)) - table(nb.class, test_df$hi_clicks_med)[1,1] - table(nb.class, test_df$hi_clicks_med)[2,2])/ sum(table(nb.class, test_df$hi_clicks_med))
 
-neg.pred.val <- (table(nb.class, test_df$hi_clicks_med)[1,1])/ (table(nb.class, test_df$hi_clicks_med)[1,1] + table(nb.class, test_df$hi_clicks_avg)[1,2])
+neg.pred.val <- (table(nb.class, test_df$hi_clicks_med)[1,1])/ (table(nb.class, test_df$hi_clicks_med)[1,1] + table(nb.class, test_df$hi_clicks_med)[1,2])
 
 neg.pred.val <- (table(nb.class, test_df$hi_clicks_med)[2,2])/ (table(nb.class, test_df$hi_clicks_med)[2,1] + table(nb.class, test_df$hi_clicks_med)[2,2])
 
