@@ -469,26 +469,86 @@ Our model achieved a between cluster sum of squares ratio of 0.407. A reasonable
 Finally, above, we already tested our Bootstrap stability. The model achieved a score of 0.987, 0.984, 0.989 for clusters 1, 2 and 3 respectively. This means that our clusters are highly stable, and are real clusters, not just a k-means artifact. So, we know that our clusters are real and consistent, but due to the structure of our \texbtf{data itself}, are not very distinct. This points us back to the fact that user interaction with the website is able to be classified simply using session clicks counts, and the two distinct classes are truly "high" and "low" engagement users classified using the rule "low" is below median, "high" is above median click counts across all users. 
 
 ## Old Model Evaluations: New Data Structure
-Now that we have collapsed and restructured our data, as well as taking care of some correlation issues (in first modification iteration), lets revisit some of our older models and evaluate their performance: on the updated data.
-
-NOTE: We are assigning labels to our data now, entering a supervised approach. Some limitations: 
+Now that we have collapsed and restructured our data, as well as taking care of some correlation issues (in first modification iteration), lets revisit some of our older models and evaluate their performance on the updated data.
 
 ```{r}
-# First create a binary response: 
+# Data partitioning
+set.seed(051026)
+n <- nrow(session_features_norm)
+train_idx <- sample(n, floor(0.8 * n))
+test_idx  <- setdiff(seq_len(n), train_idx)
 
-session_features <- session_features %>%
-  mutate(high_engagement )
+train_data <- session_features_norm[train_idx, ]
+test_data  <- session_features_norm[test_idx, ]
 ```
 
-Logistic Regression: 
+Multinomial Logistic Regression (New linear baseline) 
 ```{r}
-library(glm)
+library(nnet)
 
-# Lets focus in on predicting high engagement users, using our features 
-model_logit <- glm(high_engagement~ 
-                     n_clicks + n_categories + mean_price + sd_price + revisit_rate,
-                   data = train_sessions)
+model_logit <- multinom(segment~ 
+                          cats_per_click + items_per_click + switches_per_click +
+                          price_var_per_click + revisit_rate + mean_price,
+  data  = train_data,
+  trace = FALSE
+)
+
+pred_logit <- predict(model_logit, test_data)
 ```
+
+Linear Discriminant Analysis
+```{r}
+library(MASS)
+
+model_lda <- lda(segment~ 
+                   cats_per_click + items_per_click + switches_per_click + 
+                   price_var_per_click + revisit_rate + mean_price,
+  data = train_data
+)
+
+pred_lda <- predict(model_lda, test_data)$class
+```
+
+Random Forests
+```{r}
+library(randomForest)
+
+model_rf <- randomForest(factor(segment)~ 
+                           cats_per_click + items_per_click + switches_per_click + 
+                           price_var_per_click + revisit_rate + mean_price,
+  data   = train_data,
+  ntree  = 500
+)
+
+pred_rf <- predict(model_rf, test_data)
+```
+
+Comparisons in context of the classification problem above, on same metrics
+```{r}
+library(caret)
+
+actual <- test_data$segment
+
+results <- list(
+  logistic = confusionMatrix(factor(pred_logit), factor(actual)),
+  lda      = confusionMatrix(factor(pred_lda), factor(actual)),
+  rf       = confusionMatrix(factor(pred_rf), factor(actual))
+)
+
+# Extract key metrics into a comparison table
+comparison <- map_dfr(names(results), function(model_name) {
+  cm <- results[[model_name]]
+  tibble(
+    model = model_name,
+    accuracy = cm$overall["Accuracy"],
+    kappa = cm$overall["Kappa"],
+    macro_f1 = mean(cm$byClass[, "F1"], na.rm = TRUE)
+  )
+})
+
+print(comparison)
+```
+Note that we do not use our usual metrics like training or test MSE. This is intentional, because we are still interpreting the relative performance of our models in an unsupervised case. At this point, we have not assigned class labels. The interpretation of our results are, since Random forest has approximately the same performance as LDA, the segmented boundaries are linear, and the k-means procedure that we detailed above had genuine linear structure. Also, since all of the models performed well, we have strong cluster structure and our results will be reproducible!
 
 ## Exension of Study: RNN fit
 In this section we focus on a different question that stem from our initial study. Another useful tool that the website can use is predicting the next click of users based on their previous browsing session behavior. This is useful for targeted advertising and website navigation optimization that can be utilized by frontend developers. 
@@ -808,3 +868,6 @@ for (epoch in 1:30) {
 
 ## Future Study : Interpretability vs Performance
 
+Some things that we consider for extending our study: troubleshooting and further defining Recurrent Neural Network procedures will allow us to ask more sophisticated questions about user interactions. However, it will fundamentally pull us out of the unsupervised case, since we will need to be defining a target variable. The way our data is constructed suggests that there is not much of a case for supervised methods without feature engineering. This is also the case for LDR, Logistic and RF. The way our data itself is constructed does not have checkout results, or specifications on its users, making target parameters not exceedingly apparent. The data that we have used so far is technically self-supervised, and in the case that we use RNN to predict next click, this is also self supervised. We can also extend our study by finding another data set with a pre-defined response variables and putting it though the same pipeline. 
+
+We can also extend this study's interpretability by approaching the next-click problem from a stochastic process viewpoint. We would look at this through the lens of a markov chain (discrete finite state space, discrete time) and finding its probability transitions matrix. This will allow us to comment on the individual probabilities to transition between states (pages, clothing categories, etc), as well as long term, equilibrium distribution behavior. It may also be able to frame this as a markov jump process problem, with website traffic, wait times, or possibly Brownian motion. All of these would help with interpretability, that the RNN would not be able to provide. We may also look into a Bayesian approach using a Directed Acyclic Graph (DAG), giving us visual interpretability.  
