@@ -84,8 +84,23 @@ ytest  <- test_df[, "hi_clicks_avg"] %>% factor()
 
 
 ```{r}
-barfit <- pbart(xtrain,as.numeric(as.character(ytrain)), x.test = xtest)
+#barfit <- pbart( xtrain,as.numeric(as.character(ytrain)), x.test = xtest, 
+#                 k = 2, ntree = 200)
+#barfit <- pbart( xtrain,as.numeric(as.character(ytrain)), x.test = xtest, 
+#                 k = 2, ntree = 200, sparse = TRUE, nskip  = 1000, ndpost = 2000 )
 ```
+
+```{r}
+formals(pbart)
+#formals(pbart)$k      # → 2   (leaf shrinkage)
+#formals(pbart)$power  # → 2   (tree depth decay)
+#formals(pbart)$base   # → 0.95
+#formals(pbart)$ntree  # → 200
+```
+
+
+
+
 
 ```{r}
 # Get predicted probabilities for test set
@@ -104,60 +119,10 @@ plot(roc_bart, main = "BART ROC Curve")
 ```
 
 For median: Accuracy : 0.6257  
-For average: Accuracy : 0.6973
+For average: Accuracy : 0.6945 
 
-```{r}
-rf_fit <- randomForest(x = xtrain, y = factor(ytrain),
-                       ntree = 500,
-                       sampsize = c("0" = 1000, "1" = 1000),
-                       importance = TRUE)
-
-# Get predicted probabilities for class 1
-rf_prob <- predict(rf_fit, xtest, type = "prob")[, 2]
-
-# ROC curve
-roc_rf <- roc(as.numeric(as.character(ytest)), rf_prob)
-
-# Plot it
-plot(roc_rf, main = paste("Random Forest ROC — AUC:", round(auc(roc_rf), 3)))
-
-bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
-
-confusionMatrix(factor(bart_pred), factor(ytest))
-```
-Random forest Accuracy : 0.6497 
-
-```{r}
-library(xgboost)
-
-xgb_fit <- xgboost(
-  x = as.matrix(xtrain %>% mutate(across(where(is.factor), as.numeric))),
-  y = factor(as.numeric(as.character(ytrain))),
-  nrounds = 100,
-  objective = "binary:logistic",
-  scale_pos_weight = sum(ytrain == 0) / sum(ytrain == 1),
-  learning_rate = 0.1
-)
-```
-
-```{r}
-# Get predicted probabilities
-xgb_prob <- predict(xgb_fit, 
-                    newdata = as.matrix(xtest %>% mutate(across(where(is.factor), as.numeric))))
-
-# Convert to binary predictions
-xgb_pred <- ifelse(xgb_prob > 0.5, 1, 0)
-
-# Confusion matrix
-confusionMatrix(factor(xgb_pred), factor(as.numeric(as.character(ytest))))
-
-# AUC
-roc_xgb <- roc(as.numeric(as.character(ytest)), xgb_prob)
-auc(roc_xgb)
-plot(roc_xgb, main = paste("XGBoost ROC — AUC:", round(auc(roc_xgb), 3)))
-```
-
-
+Without sparse, AUC = 0.6583
+With sparse, AUC =  0.6589
 
 
 ```{r}
@@ -188,9 +153,138 @@ pred_class <- predict(plsda.fit, newdata = xtest)
 confusionMatrix(pred_class, ytest)
 ```
 
+```{r}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# Your known original variable names
+original_vars <- c("main_category", "color", "location", 
+                   "price", "model_photography", "page", "month")
+
+# Extract and aggregate importance
+importance_df <- data.frame(
+  dummy_var  = colnames(barfit$varcount),
+  importance = colMeans(barfit$varcount)
+) %>%
+  mutate(original_var = case_when(
+    dummy_var %in% original_vars ~ dummy_var,
+    TRUE ~ str_remove(dummy_var, "\\d+$")
+  )) %>%
+  group_by(original_var) %>%
+  summarise(importance = sum(importance)) %>%
+  mutate(importance_pct = importance / sum(importance) * 100) %>%
+  arrange(desc(importance))
+
+print(importance_df)
+
+ggplot(importance_df, aes(x = reorder(original_var, importance), y = importance_pct)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "BART Variable Importance (aggregated)",
+    x = NULL,
+    y = "% of total splits"
+  ) +
+  theme_minimal()
+```
 
 
 
+```{r}
+# Step 1: normalize each posterior draw to proportions (ndpost x 37)
+var_props <- t(apply(barfit$varcount, 1, function(x) x / sum(x)))
 
+# Step 2: convert to data frame with dummy var names
+var_props_df <- as.data.frame(var_props)
+colnames(var_props_df) <- colnames(barfit$varcount)
+
+# Step 3: aggregate dummy columns back to original variables for each posterior draw
+# Transpose so vars are rows, then group
+agg_props <- var_props_df %>%
+  t() %>%
+  as.data.frame() %>%
+  mutate(dummy_var = colnames(barfit$varcount)) %>%
+  mutate(original_var = case_when(
+    dummy_var %in% original_vars ~ dummy_var,
+    TRUE ~ str_remove(dummy_var, "\\d+$")
+  )) %>%
+  group_by(original_var) %>%
+  summarise(across(where(is.numeric), sum))
+
+# Step 4: compute posterior mean and credible intervals across draws
+draws_only <- agg_props %>% select(-original_var) %>% as.matrix()
+
+var_df <- data.frame(
+  var   = agg_props$original_var,
+  mean  = rowMeans(draws_only),
+  lower = apply(draws_only, 1, quantile, 0.05),
+  upper = apply(draws_only, 1, quantile, 0.95)
+)
+
+# Step 5: plot
+ggplot(var_df, aes(x = mean, y = reorder(var, mean))) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2) +
+  labs(title = "Variable Importance with 90% Credible Intervals",
+       x = "Posterior split proportion", y = NULL) +
+  theme_minimal()
+```
+
+
+Random Forest:
+```{r}
+rf_fit <- randomForest(x = xtrain, y = factor(ytrain),
+                       ntree = 500,
+                       sampsize = c("0" = 1000, "1" = 1000),
+                       importance = TRUE)
+
+# Get predicted probabilities for class 1
+rf_prob <- predict(rf_fit, xtest, type = "prob")[, 2]
+
+# ROC curve
+roc_rf <- roc(as.numeric(as.character(ytest)), rf_prob)
+
+# Plot it
+plot(roc_rf, main = paste("Random Forest ROC — AUC:", round(auc(roc_rf), 3)))
+
+bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
+
+confusionMatrix(factor(bart_pred), factor(ytest))
+```
+Random forest Accuracy : 0.6497 
+
+Boosting:
+```{r}
+library(xgboost)
+
+xgb_fit <- xgboost(
+  x = as.matrix(xtrain %>% mutate(across(where(is.factor), as.numeric))),
+  y = factor(as.numeric(as.character(ytrain))),
+  nrounds = 100,
+  objective = "binary:logistic",
+  scale_pos_weight = sum(ytrain == 0) / sum(ytrain == 1),
+  learning_rate = 0.1
+)
+```
+
+```{r}
+# Get predicted probabilities
+xgb_prob <- predict(xgb_fit, 
+                    newdata = as.matrix(xtest %>% mutate(across(where(is.factor), as.numeric))))
+
+# Convert to binary predictions
+xgb_pred <- ifelse(xgb_prob > 0.5, 1, 0)
+
+# Confusion matrix
+confusionMatrix(factor(xgb_pred), factor(as.numeric(as.character(ytest))))
+
+# AUC
+roc_xgb <- roc(as.numeric(as.character(ytest)), xgb_prob)
+auc(roc_xgb)
+plot(roc_xgb, main = paste("XGBoost ROC — AUC:", round(auc(roc_xgb), 3)))
+```
+
+Gradient Boosting Accuracy : 0.6180 
 
 

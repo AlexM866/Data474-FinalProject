@@ -24,19 +24,6 @@ library(pls)
 
 
 ```{r}
-clickstream <- read.csv(here("Data", "RawData", "e-shop_clothing2008.csv"),
-                        header = TRUE,
-                        sep = ";")
-
-name_map <- c(sid = "session.ID", main_category = "page.1..main.category.", clothing_model = "page.2..clothing.model.", color = "colour", model_photography = "model.photography", price_2 = "price.2")
-
-clickstream <- clickstream |>
-  rename(any_of(name_map))
-
-clickstream$price_2 <- as.factor( ifelse(clickstream$price_2 == 2, 0, clickstream$price_2) )
-
-clickstream$hi.clicks <- ifelse(clickstream$order > 9, 1,0) %>% as.factor()
-
 clickstream <- clickstream %>% mutate(across(where(is.character), as.factor))
 
 colnames(clickstream)
@@ -48,21 +35,6 @@ train_df <- clickstream[train, ]
 test_df <- clickstream[-train, ]
 table(clickstream$price_2)
 ```
-
-
-```{r}
-library(fastDummies)
-train_df_encoded <- dummy_cols(train_df, 
-                                select_columns = c("main_category", "color", "location", "month"),
-                                remove_first_dummy = TRUE,
-                                remove_selected_columns = TRUE)
-
-pcr.fit <- pcr(hi.clicks ~ ., data = train_df_encoded[, relevant_cols], 
-               scale = TRUE, validation = "CV")
-```
-
-
-
 
 ```{r}
 library(MASS)  # for fitdistr
@@ -144,6 +116,13 @@ x <- 0:max(session_lengths$total_clicks)
 nbd_probs <- dnbinom(x, size = r, mu = mu)
 ```
 
+```{r}
+hist(session_lengths$total_clicks,
+     breaks = "Sturges",   # let R decide
+     freq = FALSE,
+     main = "NBD Fit to Session Lengths",
+     xlab = "Total Clicks")
+```
 
 
 ```{r}
