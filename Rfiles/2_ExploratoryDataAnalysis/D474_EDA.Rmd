@@ -5,6 +5,13 @@ output: html_document
 ---
 
 # Data Import
+```{r, eval = FALSE}
+# Force package installation
+options(download.file.method = "wininet")
+install.packages("ggcorrplot")
+```
+
+
 We will be using the cleaned data that resulted from the processing we did in `D474_DataClean.rmd`
 
 ```{r}
@@ -125,17 +132,126 @@ As we can see from our visuals, a lot of our variables seem to be exponentially 
 ```{r}
 str(clickstream)
 ```
+When considering bivariate analysis on data that has both quantitative and categorical data, we must consider multiple cases for multivariate / bivariate EDA. We will split into 3 cases: Categorical vs Categorical, Categorical vs Quantitative, Quantitative vs Quantitative. 
 
+Setup: 
+```{r}
+library(tidyr)
+library(purrr)
+
+categorical_cols <- c("country", "main_category", "clothing_model", "color", "location", "model_photography", "price_2", "page", "hi_clicks_avg", "hi_clicks_med")
+
+quantitative_cols <- c("sid", "order", "price" )
+```
+
+
+(1) Quantitative vs Quantitative
+
+In this case, since we only have 3 quantitative variables, we can simply find their correlation matrix: 
+```{r}
+library(ggcorrplot)
+
+cor_matrix <- clickstream %>%
+  select(all_of(quantitative_cols)) %>%
+  cor(use = "complete.obs")
+
+ggcorrplot(
+  cor_matrix,
+  method = "circle",
+  type = "lower",
+  lab = TRUE,
+  colors = c("red", "green", "blue"),
+  title = "Feature corr matrix"
+)
+```
+No apparent issues with correlation amongst quantitative variables.
+
+(2) Categorical vs Categorical
+
+We use Chi-sq and Cramer's V for all categorical pairs to quantify association across all categorical pairs.
+```{r}
+library(tibble)
+
+cramers_v <- function(x, y) {
+  tbl <- table(x, y)
+  chi2 <- suppressWarnings(chisq.test(tbl))$statistic
+  n <- sum(tbl)
+  k <- min(nrow(tbl), ncol(tbl))
+  sqrt(chi2 / (n * (k - 1)))
+}
+
+# All pairs
+cat_pairs <- combn(categorical_cols, 2, simplify = FALSE)
+
+assoc_results <- map_dfr(cat_pairs, function(pair) {
+  tibble(
+    var1 = pair[1],
+    var2 = pair[2],
+    cramers_v = round(cramers_v(clickstream[[pair[1]]], clickstream[[pair[2]]]), 3)
+  )
+}) |>
+  arrange(desc(cramers_v))
+
+print(assoc_results)
+
+# Visualize as heatmap
+assoc_matrix <- assoc_results |>
+  bind_rows(rename(assoc_results, var1 = var2, var2 = var1)) |>
+  bind_rows(tibble(var1 = categorical_cols, var2 = categorical_cols, cramers_v = 1)) |>
+  pivot_wider(names_from = var2, values_from = cramers_v)
+
+assoc_mat <- as.matrix(column_to_rownames(assoc_matrix, "var1"))
+
+ggcorrplot(assoc_mat,
+  lab      = TRUE,
+  lab_size = 3,
+  colors   = c("white", "lightblue", "blue"),
+  title    = "Cramer's V — categorical associations",
+) +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+We see a few variables with strong to perfect association among categorical variables according to Cramer's V.
+
+(3) Quantitative vs Categorical
+
+The best way that we can show correlation between Quantitative vs Categorical variables is by using a Kruskal-Wallis across all categorical variables. This will show which categorical variables meaningfully stratify our quantitative variables
 
 ```{r}
-library(corrplot)
+kw_all <- map_dfr(categorical_cols, function(cat) {
+  map_dfr(quantitative_cols, function(quant) {
+    formula <- as.formula(paste(quant, "~", cat))
+    test <- tryCatch(
+      kruskal.test(formula, data = clickstream),
+      error = function(e) NULL
+    )
+    if (is.null(test)) return(NULL)
+    tibble(
+      categorical = cat,
+      quantitative = quant,
+      p_value     = round(test$p.value, 4),
+      significant = test$p.value < 0.05
+    )
+  })
+})
 
-clickstream_temp <- clickstream %>%
-  select(where(is.numeric))
+p_value <- 0.05 # standard
 
-str(clickstream_temp)
-#corrplot(clickstream_temp)
+# Visualise as significance heatmap
+kw_all |>
+  mutate(neg_log_p = -log10(p_value + 1e-10)) |>
+  ggplot(aes(x = quantitative, y = categorical, fill = neg_log_p)) +
+  geom_tile() +
+  geom_text(aes(label = ifelse(significant, "*", "")),
+            size = 5, colour = "white") +
+  scale_fill_gradient(low = "lightblue", high = "blue",
+                      name = "-log10(p)") +
+  labs(title = "Kruskal-Wallis significance heatmap",
+       subtitle = "* = significant at p < 0.05",
+       x = NULL, y = NULL) +
+  theme_minimal()
 ```
+For the dark blue sections, there is strong evidence that the categorical variable in question splits quantitative variables into different distributions. So, we see strong evidence of the majority of our categorical variables meaningfully stratifying our quantitative variables. For dark rows, order, price and sid vary meaningfully across that category. For dark columns, that quantitative variables is sensitive to  many categorical groupings. For instance, price varies signficantly by each of our categorical variables. 
 
 
 ```{r}
