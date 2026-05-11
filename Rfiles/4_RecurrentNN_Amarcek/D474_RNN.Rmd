@@ -424,7 +424,7 @@ radarchart(
   pfcol = adjustcolor(c("blue", "green", "red"), 0.2),
   plwd  = 2,
   cglcol = "grey",
-  title = "Behavioural profiles per segment"
+  title = "Behavioral profiles per segment"
 )
 legend("topright",
   legend = cluster_labels,
@@ -433,9 +433,43 @@ legend("topright",
 )
 ```
 
+Now that we have classified 3 clusters, we must now evaluate the clusters performance. For our clustering to be good, we must have cohesion, separation and stability. 
+
+(1) Measuring silhouette width tells us about cohesion and separation. 
+
+```{r}
+library(cluster)
+
+sil <- silhouette(km_style$cluster, dist(X_style))
+
+# Overall
+cat("Mean silhouette width:", round(mean(sil[, 3]), 3), "\n")
+
+# Per - cluster
+cluster_sil <- aggregate(sil[, 3], by = list(cluster = sil[, 1]), mean)
+print(cluster_sil)
+
+# Full plot
+fviz_silhouette(sil) + 
+  labs(title = "Sil width per session") + theme_minimal()
+```
+As we can see from our plot, our clusters reach close to the same peak, however clusters 2 and 3 have some negative values, This suggests that these (negative valued) session are closer to a neighboring cluster than their own. So, these are likely misclassifications. We also have a mean width of 0.259, indicating reasonable structure of our clusters, but with some overlap. 
+
+Next, we will check cohesion using within-cluster sum of squares and WSS
+```{r}
+cat("Total WSS:", round(km_style$tot.withinss, 2), "\n")
+cat("Per-clust WSS:\n")
+print(round(km_style$withinss, 2))
+
+bss_ratio <- km_style$betweenss / km_style$totss
+cat("Between sum of squares ratio:", round(bss_ratio , 3), "\n")
+```
+Our model achieved a between cluster sum of squares ratio of 0.407. A reasonable value is often considered to be above 0.6. So, our cluster structure falls short of being reasonably cohesive. The interpretation of between-cluster sum of squares, intuitively, is the proportion of total variance explained by our cluster structure. 
+
+Finally, above, we already tested our Bootstrap stability. The model achieved a score of 0.987, 0.984, 0.989 for clusters 1, 2 and 3 respectively. This means that our clusters are highly stable, and are real clusters, not just a k-means artifact. So, we know that our clusters are real and consistent, but due to the structure of our \texbtf{data itself}, are not very distinct. This points us back to the fact that user interaction with the website is able to be classified simply using session clicks counts, and the two distinct classes are truly "high" and "low" engagement users classified using the rule "low" is below median, "high" is above median click counts across all users. 
 
 ## Old Model Evaluations: New Data Structure
-Now that we have collapsed and restructured our data, lets revisit some of our older models and evaluate their performance: 
+Now that we have collapsed and restructured our data, as well as taking care of some correlation issues (in first modification iteration), lets revisit some of our older models and evaluate their performance: on the updated data.
 
 NOTE: We are assigning labels to our data now, entering a supervised approach. Some limitations: 
 
@@ -455,7 +489,6 @@ model_logit <- glm(high_engagement~
                      n_clicks + n_categories + mean_price + sd_price + revisit_rate,
                    data = train_sessions)
 ```
-
 
 ## Exension of Study: RNN fit
 
@@ -480,4 +513,6 @@ head(user_sessions) # first six sessions (see up to sid 6)
 # Sliding window sequence
 
 ```
+
 ## Future Study : Interpretability vs Performance
+
