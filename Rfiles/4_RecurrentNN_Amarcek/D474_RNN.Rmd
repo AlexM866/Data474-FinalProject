@@ -468,7 +468,7 @@ Our model achieved a between cluster sum of squares ratio of 0.407. A reasonable
 
 Finally, above, we already tested our Bootstrap stability. The model achieved a score of 0.987, 0.984, 0.989 for clusters 1, 2 and 3 respectively. This means that our clusters are highly stable, and are real clusters, not just a k-means artifact. So, we know that our clusters are real and consistent, but due to the structure of our \texbtf{data itself}, are not very distinct. This points us back to the fact that user interaction with the website is able to be classified simply using session clicks counts, and the two distinct classes are truly "high" and "low" engagement users classified using the rule "low" is below median, "high" is above median click counts across all users. 
 
-## Old Model Evaluations: New Data Structure
+## Model Evaluations: New Data Structure
 Now that we have collapsed and restructured our data, as well as taking care of some correlation issues (in first modification iteration), lets revisit some of our older models and evaluate their performance on the updated data.
 
 ```{r}
