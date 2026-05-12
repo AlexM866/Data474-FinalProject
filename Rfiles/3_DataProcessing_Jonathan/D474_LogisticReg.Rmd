@@ -96,6 +96,9 @@ c('cv error' = cv.error,'test class error'=classification.error,'TN rate'=TN.rat
 sum(test_df$hi_clicks_med != pred)/length(pred)
 ```
 
+```{r}
+confusionMatrix(factor(pred), factor(test_df$hi_clicks_med), positive = "1")
+```
 
 
 ## Feature Selection, using AVG boundary

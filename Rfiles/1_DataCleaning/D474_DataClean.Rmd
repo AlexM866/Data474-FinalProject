@@ -13,6 +13,9 @@ The fix that will hopefully work for all of us is in the package `here`. Calling
 ```{r}
 # Force dependency
 if (!require(here)) install.packages("here")
+library(conflicted)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
 ```
 
 ```{r}

@@ -19,6 +19,18 @@ library(BART)
 library(randomForest)
 library(pls)
 library(pROC)
+
+library(stringr)
+library(ggplot2)
+
+library(tidymodels)
+library(embed)
+library(xgboost)
+library(vip)
+
+library(conflicted)
+conflict_prefer("select", "dplyr")
+conflict_prefer("filter", "dplyr")
 ```
 
 
@@ -84,8 +96,8 @@ ytest  <- test_df[, "hi_clicks_avg"] %>% factor()
 
 
 ```{r}
-#barfit <- pbart( xtrain,as.numeric(as.character(ytrain)), x.test = xtest, 
-#                 k = 2, ntree = 200)
+barfit <- pbart( xtrain,as.numeric(as.character(ytrain)), x.test = xtest, 
+                 k = 2, ntree = 200)
 #barfit <- pbart( xtrain,as.numeric(as.character(ytrain)), x.test = xtest, 
 #                 k = 2, ntree = 200, sparse = TRUE, nskip  = 1000, ndpost = 2000 )
 ```
@@ -115,7 +127,7 @@ confusionMatrix(factor(bart_pred), factor(ytest), positive = '1')
 
 roc_bart <- roc(as.numeric(as.character(ytest)), bart_probs)
 auc(roc_bart)
-plot(roc_bart, main = "BART ROC Curve")
+plot(roc_bart, main = paste0("BART ROC Curve | AUC = ", round(auc(roc_bart),3)))
 ```
 
 For median: Accuracy : 0.6257  
@@ -154,9 +166,7 @@ confusionMatrix(pred_class, ytest)
 ```
 
 ```{r}
-library(dplyr)
-library(stringr)
-library(ggplot2)
+
 
 # Your known original variable names
 original_vars <- c("main_category", "color", "location", 
@@ -288,3 +298,217 @@ plot(roc_xgb, main = paste("XGBoost ROC — AUC:", round(auc(roc_xgb), 3)))
 Gradient Boosting Accuracy : 0.6180 
 
 
+
+
+
+Switch to target encoding to include clothing_model
+
+Here is a gradient boosted tree ensemble model which uses target encoding so we can include clothing_model without needing 52 extra dummy variables.
+
+```{r}
+library(tidymodels)
+library(embed)
+library(xgboost)
+library(vip)
+
+# ── 1. Prep ───────────────────────────────────────────────────────────────────
+
+clickstream_model <- clickstream %>%
+  mutate(
+    hi_clicks_avg = as.factor(hi_clicks_avg),  # must be factor for classification
+    across(c(main_category, color, location, model_photography, 
+             page, month, clothing_model), as.factor)
+  )
+
+set.seed(42)
+split <- initial_split(clickstream_model, prop = 0.8, strata = hi_clicks_avg)
+train <- training(split)
+test  <- testing(split)
+
+# ── 2. Recipe ─────────────────────────────────────────────────────────────────
+
+rec <- recipe(hi_clicks_avg ~ main_category + color + location + 
+                model_photography + page + month + clothing_model + price,
+              data = train) %>%
+  step_lencode_glm(clothing_model, outcome = vars(hi_clicks_avg)) %>%  # target encode high-cardinality
+  step_dummy(all_nominal_predictors()) %>%                              # one-hot the rest
+  step_normalize(price)                                                 # scale continuous
+
+# ── 3. Model spec ─────────────────────────────────────────────────────────────
+
+xgb_spec <- boost_tree(
+  trees = 500,
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  min_n = tune()
+) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+# ── 4. Workflow ───────────────────────────────────────────────────────────────
+
+wf <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(xgb_spec)
+
+# ── 5. Tune ───────────────────────────────────────────────────────────────────
+
+set.seed(42)
+folds <- vfold_cv(train, v = 5, strata = hi_clicks_avg)
+
+xgb_grid <- grid_space_filling(
+  tree_depth(),
+  learn_rate(),
+  loss_reduction(),
+  min_n(),
+  size = 20
+)
+
+tune_results <- tune_grid(
+  wf,
+  resamples = folds,
+  grid = xgb_grid,
+  metrics = metric_set(roc_auc, accuracy)
+)
+
+# ── 6. Finalize & fit ─────────────────────────────────────────────────────────
+
+best_params <- select_best(tune_results, metric = "roc_auc")
+
+final_wf <- finalize_workflow(wf, best_params)
+final_fit <- last_fit(final_wf, split)
+
+# ── 7. Evaluate ───────────────────────────────────────────────────────────────
+
+collect_metrics(final_fit)
+
+final_fit %>%
+  collect_predictions() %>%
+  conf_mat(truth = hi_clicks_avg, estimate = .pred_class)
+
+# Variable importance
+final_fit %>%
+  extract_fit_parsnip() %>%
+  vip::vip(num_features = 15)
+```
+
+```{r}
+# ── ROC Curve ─────────────────────────────────────────────────────────────────
+final_fit %>%
+  collect_predictions() %>%
+  roc_curve(truth = hi_clicks_avg, .pred_1, event_level = "second") %>%
+  autoplot()
+
+# ── Confusion Matrix (visual) ──────────────────────────────────────────────────
+final_fit %>%
+  collect_predictions() %>%
+  conf_mat(truth = hi_clicks_avg, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+
+preds <- final_fit %>% collect_predictions()
+
+confusionMatrix(
+  factor(preds$.pred_class, levels = c(0, 1)),
+  factor(preds$hi_clicks_avg, levels = c(0, 1)),
+  positive = "1"
+)
+```
+Boosted Gradient with target encoding Accuracy : 0.6906
+
+
+
+Now I try pBART again, but with target encoding
+
+```{r}
+# ── 1. Prep ───────────────────────────────────────────────────────────────────
+
+clickstream_model <- clickstream %>%
+  mutate(
+    hi_clicks_avg = as.factor(hi_clicks_avg),  # must be factor for classification
+    across(c(main_category, color, location, model_photography, 
+             page, month, clothing_model), as.factor)
+  )
+
+set.seed(42)
+split <- initial_split(clickstream_model, prop = 0.8, strata = hi_clicks_avg)
+train <- training(split) %>% select(hi_clicks_avg, main_category, color, location, 
+                                     model_photography, page, month, clothing_model, price)
+test  <- testing(split)  %>% select(hi_clicks_avg, main_category, color, location, 
+                                     model_photography, page, month, clothing_model, price)
+# Build encoding recipe on training data only
+encoding_rec <- recipe(hi_clicks_avg ~ ., data = train) %>%
+  step_lencode_glm(clothing_model, outcome = vars(hi_clicks_avg)) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  prep(training = train)
+
+# Apply to train and test
+xtrain_encoded <- bake(encoding_rec, new_data = train) %>% 
+                      select(-hi_clicks_avg) %>% as.data.frame()
+xtest_encoded  <- bake(encoding_rec, new_data = test) %>% 
+                      select(-hi_clicks_avg) %>% as.data.frame()
+
+# Extract outcomes
+ytrain <- train$hi_clicks_avg
+ytest  <- test$hi_clicks_avg
+
+# Fit pbart
+#barfit <- pbart(xtrain_encoded, as.numeric(as.character(ytrain)),
+#                x.test = xtest_encoded,
+#                k = 2, ntree = 200, nskip = 1000, ndpost = 2000)
+
+barfit <- pbart( xtrain_encoded,as.numeric(as.character(ytrain)), x.test = xtest_encoded, 
+                 k = 2, ntree = 200)
+```
+
+
+
+```{r}
+# Get predicted probabilities for test set
+bart_probs <- barfit$prob.test.mean
+
+# Convert to binary predictions
+bart_pred <- ifelse(bart_probs > 0.5, 1, 0)
+
+# Confusion matrix
+confusionMatrix(factor(bart_pred), factor(ytest), positive = '1')
+
+
+roc_bart <- roc(as.numeric(as.character(ytest)), bart_probs)
+auc(roc_bart)
+plot(roc_bart, main = paste0("BART ROC Curve | AUC = ", round(auc(roc_bart),3)))
+```
+
+```{r}
+
+
+# Your known original variable names
+original_vars <- c("main_category", "color", "location", 
+                   "price", "model_photography", "page", "month")
+
+# Extract and aggregate importance
+importance_df <- data.frame(
+  dummy_var  = colnames(barfit$varcount),
+  importance = colMeans(barfit$varcount)
+) %>%
+  mutate(original_var = case_when(
+    dummy_var %in% original_vars ~ dummy_var,
+    TRUE ~ str_remove(dummy_var, "\\d+$")
+  )) %>%
+  group_by(original_var) %>%
+  summarise(importance = sum(importance)) %>%
+  mutate(importance_pct = importance / sum(importance) * 100) %>%
+  arrange(desc(importance))
+
+print(importance_df)
+
+ggplot(importance_df, aes(x = reorder(original_var, importance), y = importance_pct)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "BART Variable Importance (aggregated)",
+    x = NULL,
+    y = "% of total splits"
+  ) +
+  theme_minimal()
+```

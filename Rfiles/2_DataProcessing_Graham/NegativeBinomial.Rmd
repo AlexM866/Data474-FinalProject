@@ -413,6 +413,25 @@ ggplot() +
 ```
 
 
+```{r}
+# Find the 95th percentile
+med <- median(actual_totals$actual_total)
+
+actual_totals %>%
+  count(actual_total) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = actual_total, y = prop)) +
+  geom_col(fill = "steelblue") +
+  geom_vline(xintercept = med, color = "red", linetype = "dashed", lwd = 1) +
+  annotate("text", x = med + 1, y = max(actual_totals %>% count(actual_total) %>% mutate(prop = n/sum(n)) %>% pull(prop)) * 0.9,
+           label = paste("Median"), hjust = 0, color = "red") +
+  xlim(0, quantile(actual_totals$actual_total, .95) + 10 ) + 
+  labs(title = "Session Length Distribution ( 95% of data ) ",
+       x = "Total Clicks (max order)",
+       y = "Proportion of Sessions") +
+  theme_minimal()
+```
+
 
 
 
