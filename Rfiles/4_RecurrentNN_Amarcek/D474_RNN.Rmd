@@ -34,7 +34,7 @@ str(clickstream)
 ```
 
 ## Data Restructuring
-Preamble: we aim to classify users as high engagement or low engagement based on some feature set. In this case, we will be engineering some features and using 
+Preamble: we aim to classify users as high engagement or low engagement based on some feature set. In this case, we will be engineering some features
 ```{r}
 # Data preparation
 library(dplyr)
@@ -105,7 +105,7 @@ session_features <- session_features %>%
 
 table(session_features$engagement)
 ```
-Observe we now have a 54.29% , 45.71% split now. This opposes our previous 68.3% , 31.7% split of low engagement vs high engagement "clicks". The difference is now we are looking directly at session id. 
+Observe we now have a 54.29% , 45.71% split now. This opposes our previous 68.3% , 31.7% split of low engagement vs high engagement "clicks". The difference is now we are looking directly at session id. This aims to address the majority-class issue that we encountered early on in our model fitting procedures 
 
 ```{r}
 library(ggplot2)
