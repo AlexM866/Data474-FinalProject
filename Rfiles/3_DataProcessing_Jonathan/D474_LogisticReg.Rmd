@@ -96,6 +96,17 @@ c('cv error' = cv.error,'test class error'=classification.error,'TN rate'=TN.rat
 ```{r}
 sum(test_df$hi_clicks_med != pred)/length(pred)
 ```
+```{r}
+t <- table(pred, test_df$hi_clicks_med)
+print(t)  # inspect before hardcoding indices
+TN <- t["0", "0"]
+TP <- t["1", "1"]
+FP <- t["1", "0"]
+FN <- t["0", "1"]
+
+TP.rate <- TP / (TP + FN)  # Sensitivity
+TN.rate <- TN / (TN + FP)  # Specificity
+```
 
 ```{r}
 confusionMatrix(factor(pred), factor(test_df$hi_clicks_med), positive = "1")
